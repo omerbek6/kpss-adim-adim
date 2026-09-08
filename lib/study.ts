@@ -20,7 +20,13 @@ export type Step = {
   minutes: number;
   kind: 'learn' | 'practice' | 'check' | 'review' | 'paragraph';
 };
-export type DayPlan = { mode: number; focus: string; ids: string[] };
+export type DayPlan = {
+  mode: number;
+  focus: string;
+  ids: string[];
+  kind?: 'mixed' | 'focus' | 'exam';
+  version?: 2;
+};
 export type StudyState = {
   done: Record<string, string>;
   plans: Record<string, DayPlan>;
@@ -189,6 +195,8 @@ export function daySteps(state: StudyState, day: string): Step[] {
   const p = state.plans[day];
   if (!p) return [];
   return p.ids.flatMap((id) => {
+    const custom = customStep(id, state);
+    if (custom) return [custom];
     if (id === `paragraph:${day}`)
       return [
         {
@@ -222,7 +230,7 @@ export function daySteps(state: StudyState, day: string): Step[] {
     return step ? [step] : [];
   });
 }
-export function makePlan(
+export function makeFocusedPlan(
   state: StudyState,
   day: string,
   mode?: number,
@@ -310,12 +318,313 @@ export function makePlan(
     if (stop) break;
   }
   if (limit >= 50) add(paragraph);
-  return { mode: limit, focus: t.id, ids };
+  return { mode: limit, focus: t.id, ids, kind: 'focus', version: 2 };
 }
 export function withToday(state: StudyState, day: string) {
-  return state.plans[day]
+  return state.plans[day]?.version === 2
     ? state
-    : { ...state, plans: { ...state.plans, [day]: makePlan(state, day) } };
+    : {
+        ...state,
+        plans: { ...state.plans, [day]: makeBalancedPlan(state, day) },
+      };
+}
+
+export const workRotation = [
+  ['Matematik', 'Türkçe'],
+  ['Matematik', 'Tarih'],
+  ['Matematik', 'Türkçe'],
+  ['Matematik', 'Coğrafya'],
+  ['Matematik', 'Türkçe'],
+  ['Türkçe', 'Vatandaşlık'],
+];
+export function studiedDayCount(state: StudyState, day: string) {
+  return Object.entries(state.plans).filter(
+    ([key, p]) =>
+      key < day &&
+      (day <= workEnd || key > workEnd) &&
+      p.ids.some((id) => state.done[id] === key),
+  ).length;
+}
+export function defaultMode(day: string) {
+  return day <= workEnd
+    ? 50
+    : day <= '2026-09-30'
+      ? 240
+      : day >= '2026-10-23'
+        ? 100
+        : 360;
+}
+export type ProgramSlot = { subject: string; minutes: number };
+export function programSlots(
+  state: StudyState,
+  day: string,
+  mode = defaultMode(day),
+): ProgramSlot[] {
+  const i = studiedDayCount(state, day) % 6;
+  if (mode === 25)
+    return [
+      {
+        subject: [
+          'Matematik',
+          'Türkçe',
+          'Tarih',
+          'Matematik',
+          'Coğrafya',
+          'Vatandaşlık',
+        ][i],
+        minutes: 25,
+      },
+    ];
+  if (mode === 50)
+    return workRotation[i].map((subject) => ({ subject, minutes: 25 }));
+  const general = [
+    'Tarih',
+    'Coğrafya',
+    'Vatandaşlık',
+    'Tarih',
+    'Coğrafya',
+    'Vatandaşlık',
+  ][i];
+  if (mode === 100)
+    return [
+      { subject: 'Matematik', minutes: 40 },
+      { subject: 'Türkçe', minutes: 25 },
+      { subject: i === 5 ? 'Geometri' : general, minutes: 25 },
+      { subject: 'Tekrar', minutes: 10 },
+    ];
+  if (mode <= 240)
+    return [
+      { subject: 'Matematik', minutes: 80 },
+      { subject: 'Türkçe', minutes: 65 },
+      { subject: general, minutes: 65 },
+      { subject: 'Tekrar', minutes: 20 },
+      { subject: 'Paragraf', minutes: 10 },
+    ];
+  return [
+    { subject: 'Matematik', minutes: 100 },
+    { subject: 'Türkçe', minutes: 80 },
+    { subject: general, minutes: 80 },
+    {
+      subject: [
+        'Geometri',
+        'Tarih',
+        'Coğrafya',
+        'Geometri',
+        'Vatandaşlık',
+        'Tarih',
+      ][i],
+      minutes: 70,
+    },
+    { subject: 'Tekrar', minutes: 20 },
+    { subject: 'Paragraf', minutes: 10 },
+  ];
+}
+export function customStep(id: string, state: StudyState): Step | undefined {
+  const final = /^finalreview:(20\d{2}-\d{2}-\d{2}):([0-3])$/.exec(id);
+  if (final)
+    return {
+      id,
+      topicId: '',
+      title: [
+        'Matematik ve geometri · eski yanlışlar',
+        'Türkçe · eski yanlışlar',
+        'Tarih ve coğrafya · kısa tekrar',
+        'Vatandaşlık · kısa tekrar',
+      ][Number(final[2])],
+      detail:
+        'Yeni konu açmadan, daha önce çalıştığın notları kapatıp hatırla; birkaç eski yanlışını yeniden çöz. 25 dakika üst sınır, erken bırakabilirsin.',
+      minutes: 25,
+      kind: 'review',
+    };
+  const refresh = /^refresh:(20\d{2}-\d{2}-\d{2}):(10|20)$/.exec(id);
+  if (refresh) {
+    const recent = topics
+      .filter((t) =>
+        topicSteps(t, state).some(
+          (s) => state.done[s.id] && state.done[s.id] < refresh[1],
+        ),
+      )
+      .slice(-3);
+    return {
+      id,
+      topicId: '',
+      title: 'Notları kapatıp hatırla',
+      detail: recent.length
+        ? `Eski yanlışlarından birkaçını çöz: ${recent.map((t) => t.name).join(', ')}. Hatırlayamadığın yerde kısa notuna dön.`
+        : 'Daha önce baktığın doğal sayılar, tek–çift ve faktöriyelden birkaç soru çöz. Önce çözümü kapatıp kendin dene.',
+      minutes: Number(refresh[2]),
+      kind: 'review',
+    };
+  }
+  const recall = /^spaced:(s\d+-\d+):(1|3|7)$/.exec(id);
+  if (recall) {
+    const t = topics.find((t) => t.id === recall[1]);
+    if (t)
+      return {
+        id,
+        topicId: t.id,
+        title: `Hatırla: ${t.name}`,
+        detail:
+          'Notların kapalıyken üç bilgiyi anlat; eski yanlışlarından iki soruyu çöz. Takılırsan yalnız o noktaya dön.',
+        minutes: 10,
+        kind: 'review',
+      };
+  }
+  const mock = /^mock:(20\d{2}-\d{2}-\d{2}):(solve|review)$/.exec(id);
+  if (mock)
+    return {
+      id,
+      topicId: '',
+      title:
+        mock[2] === 'solve'
+          ? 'Tam denemeyi süre tutarak çöz'
+          : 'Denemedeki yanlışları incele',
+      detail:
+        mock[2] === 'solve'
+          ? 'Elindeki KPSS ortaöğretim denemesini 130 dakika tutarak, yardım almadan çöz. Konuların bitmiş olması gerekmiyor.'
+          : 'Doğru, yanlış ve boşlarını ders ders say. Yanlışın nedenini yaz: konu eksiği, işlem/okuma hatası veya süre. En çok tekrar eden iki eksiği sonraki çalışmalara seç.',
+      minutes: mock[2] === 'solve' ? 130 : 40,
+      kind: 'practice',
+    };
+}
+export function makeBalancedPlan(
+  state: StudyState,
+  day: string,
+  mode?: number,
+): DayPlan {
+  const old = state.plans[day];
+  const limit =
+    mode ?? (old && old.kind !== 'exam' ? old.mode : defaultMode(day));
+  const kept = old?.ids.filter((id) => state.done[id]) || [];
+  const existing = daySteps(state, day).filter((s) => kept.includes(s.id));
+  let used = existing.reduce((n, s) => n + s.minutes, 0);
+  const ids = [...kept];
+  const slots = programSlots(state, day, limit);
+  const add = (step: Step, quota: number) => {
+    if (
+      state.done[step.id] ||
+      ids.includes(step.id) ||
+      step.minutes > quota ||
+      used + step.minutes > limit
+    )
+      return false;
+    ids.push(step.id);
+    used += step.minutes;
+    return true;
+  };
+  if (day >= '2026-10-23') {
+    for (let i = 0; i < 4; i++) {
+      const s = customStep(`finalreview:${day}:${i}`, state)!;
+      if (used + s.minutes <= Math.min(limit, 100)) add(s, 25);
+    }
+    return {
+      mode: limit,
+      focus: old?.focus || 's0-7',
+      ids,
+      kind: 'mixed',
+      version: 2,
+    };
+  }
+  for (const slot of slots) {
+    let available =
+      slot.minutes -
+      existing
+        .filter((s) =>
+          slot.subject === 'Tekrar'
+            ? s.id.startsWith('refresh:') || s.id.startsWith('spaced:')
+            : slot.subject === 'Paragraf'
+              ? s.kind === 'paragraph'
+              : topics.find((t) => t.id === s.topicId)?.subject ===
+                slot.subject,
+        )
+        .reduce((n, s) => n + s.minutes, 0);
+    if (slot.subject === 'Tekrar') {
+      for (const t of topics) {
+        if (available < 10 || !completed(t, state)) continue;
+        const stages = [1, 3, 7];
+        const stage = stages.find((n) => !state.done[`spaced:${t.id}:${n}`]);
+        if (!stage) continue;
+        const previous =
+          stage === 1
+            ? state.done[`${t.id}:check`]
+            : state.done[`spaced:${t.id}:${stage === 3 ? 1 : 3}`];
+        const days = stage === 1 ? 1 : stage === 3 ? 2 : 4;
+        if (
+          previous &&
+          Date.parse(day) - Date.parse(previous) >= days * 86400000
+        ) {
+          const step = customStep(`spaced:${t.id}:${stage}`, state)!;
+          if (add(step, available)) available -= 10;
+        }
+      }
+      if (available >= 10)
+        add(
+          customStep(`refresh:${day}:${available >= 20 ? 20 : 10}`, state)!,
+          available,
+        );
+      continue;
+    }
+    if (slot.subject === 'Paragraf') {
+      add(
+        {
+          id: `paragraph:${day}`,
+          topicId: '',
+          title: '',
+          detail: '',
+          minutes: 10,
+          kind: 'paragraph',
+        },
+        available,
+      );
+      continue;
+    }
+    const t = nextTopic(state, slot.subject);
+    if (t.subject !== slot.subject) continue;
+    for (const step of topicSteps(t, state)) {
+      if (state.done[step.id] || ids.includes(step.id)) continue;
+      if (!add(step, available)) break;
+      available -= step.minutes;
+    }
+    // Do not queue the next topic before this one's independent check is passed.
+  }
+  const first = ids
+    .map((id) => topics.find((t) => t.id === id.split(':')[0]))
+    .find(Boolean);
+  return {
+    mode: limit,
+    focus: first?.id || nextTopic(state, slots[0].subject).id,
+    ids,
+    kind: 'mixed',
+    version: 2,
+  };
+}
+export function makePlan(
+  state: StudyState,
+  day: string,
+  mode?: number,
+  focus?: string,
+): DayPlan {
+  if (focus || state.plans[day]?.kind === 'focus')
+    return makeFocusedPlan(state, day, mode, focus);
+  return makeBalancedPlan(state, day, mode);
+}
+export function makeExamPlan(state: StudyState, day: string): DayPlan {
+  const kept = state.plans[day]?.ids.filter((id) => state.done[id]) || [];
+  const extra = [`mock:${day}:solve`, `mock:${day}:review`].filter(
+    (id) => !kept.includes(id),
+  );
+  const minutes =
+    daySteps(state, day)
+      .filter((s) => kept.includes(s.id))
+      .reduce((n, s) => n + s.minutes, 0) +
+    extra.reduce((n, id) => n + customStep(id, state)!.minutes, 0);
+  return {
+    mode: Math.max(170, minutes),
+    focus: state.plans[day]?.focus || 's0-7',
+    ids: [...kept, ...extra],
+    kind: 'exam',
+    version: 2,
+  };
 }
 export function validateState(value: unknown): value is StudyState {
   if (!value || typeof value !== 'object') return false;
@@ -348,6 +657,7 @@ export function validateState(value: unknown): value is StudyState {
   const known = new Set(allSteps(s).map((x) => x.id));
   const validId = (id: string) =>
     known.has(id) ||
+    Boolean(customStep(id, s)) ||
     /^paragraph:20\d{2}-\d{2}-\d{2}$/.test(id) ||
     (id.startsWith('recall:') && topics.some((t) => `recall:${t.id}` === id));
   const validDay = (d: string) =>
@@ -360,7 +670,11 @@ export function validateState(value: unknown): value is StudyState {
       ([day, p]) =>
         validDay(day) &&
         p &&
-        [25, 50, 100, 150, 200].includes(p.mode) &&
+        (p.kind === 'exam'
+          ? Number.isInteger(p.mode) && p.mode >= 170 && p.mode <= 1000
+          : [25, 50, 100, 150, 200, 240, 360].includes(p.mode)) &&
+        (p.kind === undefined || ['mixed', 'focus', 'exam'].includes(p.kind)) &&
+        (p.version === undefined || p.version === 2) &&
         topics.some((t) => t.id === p.focus) &&
         Array.isArray(p.ids) &&
         p.ids.length <= 50 &&
