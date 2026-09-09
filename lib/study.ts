@@ -1,4 +1,5 @@
 import catalog from './topics.json';
+import { validateCompanion, type CompanionState } from './companion';
 
 export type Topic = (typeof catalog)[number];
 export const topics: Topic[] = catalog;
@@ -27,7 +28,7 @@ export type DayPlan = {
   kind?: 'mixed' | 'focus' | 'exam';
   version?: 2;
 };
-export type StudyState = {
+export type StudyState = CompanionState & {
   done: Record<string, string>;
   plans: Record<string, DayPlan>;
   extra: Record<string, number>;
@@ -629,6 +630,7 @@ export function makeExamPlan(state: StudyState, day: string): DayPlan {
 export function validateState(value: unknown): value is StudyState {
   if (!value || typeof value !== 'object') return false;
   const s = value as StudyState;
+  if (!validateCompanion(s, new Set(topics.map((t) => t.id)))) return false;
   if (
     typeof s.application !== 'boolean' ||
     !s.done ||

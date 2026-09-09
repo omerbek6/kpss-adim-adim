@@ -12,6 +12,7 @@ import {
   SelectItem,
 } from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
+import { Input } from '@/components/ui/input';
 import {
   Check,
   ArrowUpRight,
@@ -22,6 +23,11 @@ import {
   RefreshCw,
   ArrowLeft,
   CalendarDays,
+  House,
+  ChartNoAxesCombined,
+  Smartphone,
+  WifiOff,
+  Search,
 } from 'lucide-react';
 import {
   topics,
@@ -48,8 +54,14 @@ import {
 } from '@/lib/study';
 import { registerStudyTools } from '@/lib/webmcp';
 import { ProgramPanel } from './program-panel';
+import { FocusPanel } from './focus-panel';
+import { ProgressPanel } from './progress-panel';
+import { PwaPanel, usePwa } from './pwa-panel';
+import { TopicNotes } from './topic-notes';
+import { studyRequest } from '@/lib/client-request';
 
 export default function Home() {
+  const pwa = usePwa();
   const [state, setState] = useState<StudyState>(emptyState);
   const [revision, setRevision] = useState(0);
   const [ready, setReady] = useState(false);
@@ -60,6 +72,8 @@ export default function Home() {
   const [tab, setTab] = useState('today');
   const [subject, setSubject] = useState('Matematik');
   const [expanded, setExpanded] = useState('');
+  const [query, setQuery] = useState('');
+  const [topicFilter, setTopicFilter] = useState('all');
   const stateRef = useRef(state);
   const revisionRef = useRef(revision);
   const busyRef = useRef(false);
@@ -76,11 +90,13 @@ export default function Home() {
     readyRef.current = false;
     setError('');
     try {
-      const response = await fetch('/api/study', { cache: 'no-store' });
+      const response = await studyRequest({ cache: 'no-store' });
       if (!response.ok)
         throw new Error(
           'Kayıtlarına ulaşılamadı. İnternetini kontrol edip tekrar dene.',
         );
+      if (!response.headers.get('Content-Type')?.includes('application/json'))
+        throw new Error('Oturumunu yenilemek için sayfayı yeniden aç.');
       const data = (await response.json()) as {
         state: StudyState;
         revision: number;
@@ -115,6 +131,8 @@ export default function Home() {
     transform: (s: StudyState) => StudyState,
     message = 'Kaydedildi',
   ) {
+    if (!navigator.onLine)
+      throw new Error('İnternet bağlantısı yok. Bu değişiklik kaydedilmedi.');
     if (!readyRef.current || busyRef.current)
       throw new Error('Kayıt hazır olana kadar bekle.');
     busyRef.current = true;
@@ -126,7 +144,7 @@ export default function Home() {
     stateRef.current = next;
     setState(next);
     try {
-      const response = await fetch('/api/study', {
+      const response = await studyRequest({
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ state: next, revision: revisionRef.current }),
@@ -228,6 +246,26 @@ export default function Home() {
   const completedCount = topics.filter(
     (t) => !t.practice && completed(t, state),
   ).length;
+  const blocked = !ready || busy || !pwa.online;
+  const matchesTopic = (t: Topic) =>
+    t.name
+      .toLocaleLowerCase('tr-TR')
+      .includes(query.trim().toLocaleLowerCase('tr-TR')) &&
+    (topicFilter === 'all' ||
+      (topicFilter === 'revisit' && state.favorites?.includes(t.id)) ||
+      (topicFilter === 'started' &&
+        topicSteps(t, state).some((s) => state.done[s.id]) &&
+        !completed(t, state)));
+  const openTopic = (id: string) => {
+    const t = topics.find((t) => t.id === id);
+    if (!t) return;
+    setSubject(t.subject);
+    setQuery('');
+    setTopicFilter('all');
+    setExpanded(id);
+    setTab('topics');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
   const afterWork = !!date && date > workEnd;
   const mixed = plan?.kind === 'mixed';
   const isExam = plan?.kind === 'exam';
@@ -298,7 +336,7 @@ export default function Home() {
         id={context + step.id}
         checked={!!state.done[step.id]}
         onCheckedChange={(value) => safe(setStep(step.id, !!value))}
-        disabled={!ready || busy || !canCheck(step)}
+        disabled={blocked || !canCheck(step)}
         className="task-check"
       />
       <div>
@@ -410,6 +448,13 @@ export default function Home() {
                 Henüz oturmadı · 25 dakika daha ekle
               </button>
             )}
+            <TopicNotes
+              key={t.id + ':notes'}
+              topic={t}
+              state={state}
+              disabled={blocked}
+              onSave={change}
+            />
             <details className="book-details">
               <summary>Pegem’de hangi bölümler?</summary>
               <ul>
@@ -441,15 +486,35 @@ export default function Home() {
           {busy
             ? 'Kaydediliyor'
             : ready
-              ? 'Tiklerin otomatik kaydolur'
+              ? pwa.online
+                ? 'Kayıtların yanında'
+                : 'Çevrimdışısın'
               : 'Kayıtlar yükleniyor'}
         </span>
       </header>
       <main>
+        {!pwa.online && (
+          <div className="offline-banner" role="status">
+            <WifiOff size={20} />
+            <span>
+              Bağlantı yok. Yeni tik ve notlar kaydedilemez. İnternet gelince
+              devam et.
+            </span>
+          </div>
+        )}
+        {pwa.waiting && (
+          <div className="offline-banner">
+            <RefreshCw size={20} />
+            <span>
+              Yeni sürüm hazır. Açık formunu kaydet; ardından Uygulama
+              bölümünden güncelle.
+            </span>
+          </div>
+        )}
         <div className="page-heading">
           <div>
             <p className="eyebrow">{dateLabel.toLocaleUpperCase('tr-TR')}</p>
-            <h1>Bugün bir adım.</h1>
+            <h1>Hedefin için, bugün.</h1>
             <p>
               {afterWork
                 ? 'Artık daha fazla zamanın var. Çalışmaları gün içine yay.'
@@ -490,7 +555,7 @@ export default function Home() {
                 onCheckedChange={(v) =>
                   safe(change((s) => ({ ...s, application: !!v })))
                 }
-                disabled={!ready || busy}
+                disabled={blocked}
               />
               Kontrol ettim
             </label>
@@ -502,6 +567,9 @@ export default function Home() {
             <button onClick={() => void load()} disabled={busy}>
               Son kaydı tekrar yükle
             </button>
+            <button onClick={() => window.location.reload()} disabled={busy}>
+              Sayfayı yeniden aç
+            </button>
           </div>
         )}
         <Tabs
@@ -510,11 +578,38 @@ export default function Home() {
           className="main-tabs"
         >
           <TabsList className="main-tab-list">
-            <TabsTrigger value="today">Bugünkü adımım</TabsTrigger>
-            <TabsTrigger value="program">Programım</TabsTrigger>
-            <TabsTrigger value="topics">Konular ve süreleri</TabsTrigger>
+            <TabsTrigger value="today">
+              <House />
+              Bugün
+            </TabsTrigger>
+            <TabsTrigger value="program">
+              <CalendarDays />
+              Programım
+            </TabsTrigger>
+            <TabsTrigger value="topics">
+              <BookOpen />
+              Konular
+            </TabsTrigger>
+            <TabsTrigger value="progress">
+              <ChartNoAxesCombined />
+              İlerlemem
+            </TabsTrigger>
+            <TabsTrigger value="app">
+              <Smartphone />
+              Uygulama
+            </TabsTrigger>
           </TabsList>
           <TabsContent value="today">
+            {date && ready && (
+              <FocusPanel
+                state={state}
+                date={date}
+                next={steps.find((s) => !state.done[s.id])}
+                disabled={blocked}
+                onSave={change}
+                onComplete={(id) => setStep(id, true)}
+              />
+            )}
             <div className="mode-section">
               <p>Bugün ne kadar enerjin var?</p>
               <Tabs
@@ -539,7 +634,7 @@ export default function Home() {
                     <TabsTrigger
                       key={m.value}
                       value={String(m.value)}
-                      disabled={!ready || busy}
+                      disabled={blocked}
                     >
                       <strong>{m.label}</strong>
                       <span>{m.value} dakika</span>
@@ -591,7 +686,7 @@ export default function Home() {
                   {(!mixed || plan?.version !== 2) && (
                     <button
                       className="primary-btn"
-                      disabled={!ready || busy}
+                      disabled={blocked}
                       onClick={() =>
                         safe(
                           change(
@@ -630,7 +725,7 @@ export default function Home() {
                     >
                       <SelectTrigger
                         aria-labelledby="focus-label"
-                        disabled={!ready || busy}
+                        disabled={blocked}
                       >
                         <SelectValue />
                       </SelectTrigger>
@@ -670,7 +765,7 @@ export default function Home() {
                           </p>
                           <button
                             className="plain-btn"
-                            disabled={!ready || busy}
+                            disabled={blocked}
                             onClick={() =>
                               safe(
                                 change(
@@ -847,7 +942,7 @@ export default function Home() {
             <ProgramPanel
               state={state}
               date={date}
-              disabled={!ready || busy}
+              disabled={blocked}
               onToday={() => setTab('today')}
               onApply={(minutes) => {
                 safe(
@@ -886,6 +981,30 @@ export default function Home() {
                 dersleri Programım bölümündeki gibi birlikte ilerlet.
               </p>
             </div>
+            <div className="topic-tools">
+              <label className="topic-search">
+                <Search size={20} />
+                <Input
+                  aria-label="Konu ara"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Bir konu bul: bölme, paragraf…"
+                />
+              </label>
+              <Select
+                value={topicFilter}
+                onValueChange={(v) => setTopicFilter(String(v))}
+              >
+                <SelectTrigger aria-label="Konu görünümünü filtrele">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Tüm konular</SelectItem>
+                  <SelectItem value="started">Devam ettiklerim</SelectItem>
+                  <SelectItem value="revisit">Tekrar edeceklerim</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <Tabs
               value={subject}
               onValueChange={(value) => {
@@ -904,8 +1023,19 @@ export default function Home() {
                 <TabsContent key={s} value={s}>
                   <div className="catalog-list">
                     {topics
-                      .filter((t) => t.subject === s && !t.practice)
+                      .filter(
+                        (t) =>
+                          t.subject === s && !t.practice && matchesTopic(t),
+                      )
                       .map(topicRow)}
+                    {!topics.some(
+                      (t) => t.subject === s && !t.practice && matchesTopic(t),
+                    ) && (
+                      <p className="calm-empty">
+                        Bu derste seçimine uyan konu yok. Aramayı veya filtreyi
+                        değiştirebilirsin.
+                      </p>
+                    )}
                   </div>
                   {topics.some((t) => t.subject === s && t.practice) && (
                     <details className="practice-group">
@@ -948,6 +1078,31 @@ export default function Home() {
                 sayılmadı.
               </p>
             </div>
+          </TabsContent>
+          <TabsContent value="progress">
+            {date && ready ? (
+              <ProgressPanel
+                state={state}
+                date={date}
+                disabled={blocked}
+                onSave={change}
+                onTopic={openTopic}
+              />
+            ) : (
+              <p className="calm-empty">
+                Kayıtların yüklenince ilerlemen burada görünecek.
+              </p>
+            )}
+          </TabsContent>
+          <TabsContent value="app">
+            <PwaPanel
+              installed={pwa.installed}
+              online={pwa.online}
+              waiting={!!pwa.waiting}
+              onUpdate={pwa.update}
+              state={state}
+              ready={ready}
+            />
           </TabsContent>
         </Tabs>
         <div className="footer-notes">
