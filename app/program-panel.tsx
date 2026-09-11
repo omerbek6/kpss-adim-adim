@@ -10,6 +10,7 @@ import {
   nextTopic,
   formatMinutes,
   workEnd,
+  programStart,
   type StudyState,
 } from '@/lib/study';
 
@@ -33,6 +34,21 @@ export function ProgramPanel({
   const current = studiedDayCount(state, date) % 6;
   return (
     <div className="program-panel">
+      {date < programStart && (
+        <section className="start-card compact-start-card">
+          <div className="start-card-mark">
+            <BookOpen size={22} />
+          </div>
+          <div>
+            <p className="eyebrow">PAZAR GÜNÜNE HAZIRLIK</p>
+            <h2>13 Eylül’de ilk çalışma akışın açılacak.</h2>
+            <p>
+              Aşağıdaki seçenekleri şimdi inceleyebilirsin. Uygula düğmesi Pazar
+              gününe kadar ders borcu oluşturmaz.
+            </p>
+          </div>
+        </section>
+      )}
       <div className="catalog-intro">
         <p className="eyebrow">DERSLER BİRLİKTE İLERLER</p>
         <h2>Bir ders bitsin diye diğerini bekletme.</h2>
@@ -115,11 +131,11 @@ export function ProgramPanel({
         </p>
       </section>
       <section className="program-section">
-        <h3>27 Eylül’e kadar: 6 çalışma günlük sıra</h3>
+        <h3>13–27 Eylül: 6 çalışma günlük sıra</h3>
         <p>
-          İş akşamında iki derse en fazla 25’er dakika. Bir gün kaçırırsan
-          takvim borcu oluşmaz; çalıştığın bir sonraki gün sıradaki eşleşme
-          gelir. İzin gününü yukarıdan 100 dakika seç.
+          Pazar günü başla; iş akşamında iki derse en fazla 25’er dakika. Bir
+          gün kaçırırsan takvim borcu oluşmaz; çalıştığın bir sonraki gün
+          sıradaki eşleşme gelir. İzin gününü yukarıdan 100 dakika seç.
         </p>
         <ol className="rotation-list">
           {workRotation.map((pair, i) => (
@@ -207,6 +223,53 @@ export function ProgramPanel({
         >
           Yöntemin dayanağı: IES öğrenme rehberi <ArrowUpRight size={15} />
         </a>
+      </section>
+      <section className="program-section question-strategy">
+        <div className="strategy-head">
+          <div>
+            <p className="eyebrow">NETİ KORUMA PLANI</p>
+            <h3>Sınavda önce hangi sorulara gideceğiz?</h3>
+            <p>
+              Kesin soru tahmini yapmıyoruz. Önce temel ve hızlı kontrol
+              edebildiğin sorularla güvenli taban kuracağız; denemelerde çıkan
+              hatalar, seçmeli konuların sırasını değiştirecek.
+            </p>
+          </div>
+          <BookOpen size={24} />
+        </div>
+        <div className="strategy-grid">
+          <div>
+            <span>HER ÇALIŞMA GÜNÜ</span>
+            <strong>Paragraf + temel matematik</strong>
+            <p>Anlam, işlem, oran–yüzde ve kısa problem adımları.</p>
+          </div>
+          <div>
+            <span>HAFTALIK DÖNGÜ</span>
+            <strong>Tarih + coğrafya + vatandaşlık</strong>
+            <p>
+              ÖSYM kapsamındaki ağırlığı yüksek ana başlıkları dönüşümlü koru.
+            </p>
+          </div>
+          <div>
+            <span>DENEME SONRASI</span>
+            <strong>Yanlışın nedenine göre dön</strong>
+            <p>Konu eksiği, işlem/okuma hatası ve süre sorununu ayrı yaz.</p>
+          </div>
+        </div>
+        <a
+          href="https://www.osym.gov.tr/2024kpss-ortaogretim-sinavi-temel-soru-kitapcigi-ve-cevap-anahtari-yayimlandi"
+          target="_blank"
+          rel="noreferrer"
+        >
+          ÖSYM’nin yayımladığı 2024 Ortaöğretim örnek soru duyurusunu aç{' '}
+          <ArrowUpRight size={15} />
+        </a>
+        <p className="program-footnote">
+          ÖSYM sorularının tamamı telifli olduğu için siteye kopyalanmaz;
+          elindeki denemelerde aynı analiz düzenini kullanacağız. Yanlışların
+          dörtte biri netten düştüğü için emin olmadığın işaretleri ayrıca takip
+          et.
+        </p>
       </section>
       <section className="program-section exam-program">
         <BookOpen size={24} />

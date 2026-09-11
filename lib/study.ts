@@ -13,6 +13,13 @@ export const subjects = [
 ];
 export const examDate = '2026-10-25';
 export const workEnd = '2026-09-27';
+export const programStart = '2026-09-13';
+export type PriorityTier = 'essential' | 'high' | 'selective' | 'skip';
+export type TopicMeta = {
+  tier: PriorityTier;
+  label: string;
+  reason: string;
+};
 export type Step = {
   id: string;
   topicId: string;
@@ -25,7 +32,7 @@ export type DayPlan = {
   mode: number;
   focus: string;
   ids: string[];
-  kind?: 'mixed' | 'focus' | 'exam';
+  kind?: 'mixed' | 'focus' | 'exam' | 'prestart';
   version?: 2;
 };
 export type StudyState = CompanionState & {
@@ -33,6 +40,8 @@ export type StudyState = CompanionState & {
   plans: Record<string, DayPlan>;
   extra: Record<string, number>;
   application: boolean;
+  skipped?: Record<string, string>;
+  skipOverrides?: string[];
 };
 export const emptyState = (): StudyState => ({
   done: {},
@@ -66,6 +75,169 @@ export const teachers: Record<string, { name: string; url: string }> = {
     url: 'https://www.youtube.com/playlist?list=PL8xiaE-wCWlY1jIb_20i4tu0NjHHGjRZm',
   },
 };
+
+const essentialTopics = new Set([
+  's0-1',
+  's0-3',
+  's0-4',
+  's0-5',
+  's0-6',
+  's0-7',
+  's0-8',
+  's0-9',
+  's0-11',
+  's0-12',
+  's0-13',
+  's0-18',
+  's0-20',
+  's0-22',
+  's0-24',
+  's0-34',
+  's0-37',
+  's1-1',
+  's1-2',
+  's1-4',
+  's1-5',
+  's1-6',
+  's1-10',
+  's1-11',
+  's1-12',
+  's1-13',
+  's2-1',
+  's2-6',
+  's2-14',
+  's2-15',
+  's2-16',
+  's2-17',
+  's2-24',
+  's2-36',
+  's2-39',
+  's3-1',
+  's3-17',
+  's3-18',
+  's3-24',
+  's3-25',
+  's3-29',
+  's3-30',
+  's3-33',
+  's3-34',
+  's3-35',
+  's3-41',
+  's4-1',
+  's4-4',
+  's4-7',
+  's4-18',
+  's4-25',
+  's4-27',
+  's4-29',
+  's4-30',
+  's4-34',
+  's4-36',
+  's4-40',
+  's4-46',
+  's4-50',
+  's5-1',
+  's5-7',
+  's5-9',
+  's5-10',
+  's5-13',
+  's5-17',
+  's5-19',
+]);
+const highTopics = new Set([
+  's0-10',
+  's0-14',
+  's0-15',
+  's0-16',
+  's0-23',
+  's0-25',
+  's0-29',
+  's0-31',
+  's1-3',
+  's1-7',
+  's1-8',
+  's1-9',
+  's1-14',
+  's2-11',
+  's2-30',
+  's2-33',
+  's2-42',
+  's2-45',
+  's3-5',
+  's3-6',
+  's3-7',
+  's3-10',
+  's3-12',
+  's4-10',
+  's4-11',
+  's4-12',
+  's4-53',
+  's5-4',
+  's5-23',
+]);
+const skipTopics = new Set(['s0-32', 's0-33', 's1-18', 's1-20', 's4-56']);
+const exactVideoUrls: Record<string, string> = {
+  's0-1': 'https://www.youtube.com/watch?v=U10mvNleW7Q',
+  's0-7': 'https://www.youtube.com/watch?v=iU2fbEeyIYE',
+  's0-18': 'https://www.youtube.com/watch?v=ScrYpNV7fMI',
+  's2-14': 'https://www.youtube.com/watch?v=oNUOLz0tLvU',
+  's2-36': 'https://www.youtube.com/watch?v=aeSFMfbMHr8',
+  's3-5': 'https://www.youtube.com/watch?v=n_0zTtElnQ0',
+  's3-9': 'https://www.youtube.com/watch?v=eYC_siMiEQQ',
+  's3-18': 'https://www.youtube.com/watch?v=AKIJRFcGdcU',
+  's4-25': 'https://www.youtube.com/watch?v=XZucXJ5XOfI',
+  's5-1': 'https://www.youtube.com/watch?v=WzDYrVlF7u8',
+};
+const skipReasons: Record<string, string> = {
+  Matematik:
+    'Bu turda çok zaman isteyen ve temel netlere göre getirisi daha belirsiz; denemelerde ihtiyaç çıkarsa geri döneceğiz.',
+  Geometri:
+    'Önce temel üçgen ve dörtgenleri oturt; ileri başlıklar ancak temel netler güvenli olunca.',
+  Tarih:
+    'Geniş kronoloji içinde son turda kısa özet ve soru üzerinden ele alınacak.',
+};
+export function topicMeta(t: Topic): TopicMeta {
+  if (t.practice)
+    return {
+      tier: 'selective',
+      label: 'Soru turu',
+      reason: 'Yeni konu değil; ilgili başlıklar öğrenildikten sonra çöz.',
+    };
+  const tier: PriorityTier = skipTopics.has(t.id)
+    ? 'skip'
+    : essentialTopics.has(t.id)
+      ? 'essential'
+      : highTopics.has(t.id)
+        ? 'high'
+        : 'selective';
+  const labels: Record<PriorityTier, string> = {
+    essential: 'Önce',
+    high: 'Yüksek getiri',
+    selective: 'Seçerek çalış',
+    skip: 'Bu turda geç',
+  };
+  const reasons: Record<PriorityTier, string> = {
+    essential:
+      'Temel ve sık karşılaşılan soru becerilerini kurar; zaman daralırsa ilk korunacak grup.',
+    high: 'Temel oturduğunda net kazandırma ihtimali yüksek; ikinci sırada ilerle.',
+    selective:
+      'Zaman kalırsa veya denemede eksik çıkarsa çalış; diğerlerini bekletme.',
+    skip:
+      skipReasons[t.subject] ||
+      'Şimdilik geç; deneme sonucu gerekirse geri dön.',
+  };
+  return { tier, label: labels[tier], reason: reasons[tier] };
+}
+export function topicVideoUrl(t: Topic) {
+  if (exactVideoUrls[t.id]) return exactVideoUrls[t.id];
+  const teacher = teachers[t.subject]?.name || '';
+  return `https://www.youtube.com/results?search_query=${encodeURIComponent(`${teacher} KPSS ${t.name}`)}`;
+}
+export function topicVideoLabel(t: Topic) {
+  return exactVideoUrls[t.id]
+    ? `${teachers[t.subject].name} · bu konu anlatımını aç`
+    : `${teachers[t.subject].name} · bu başlığı YouTube’da aç`;
+}
 export function dayKey(date = new Date()) {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Europe/Istanbul',
@@ -176,18 +348,36 @@ export function completed(t: Topic, state: StudyState) {
   return topicSteps(t, state).every((s) => Boolean(state.done[s.id]));
 }
 export function nextTopic(state: StudyState, subject = 'Matematik') {
-  return (
-    topics.find(
+  const skipped = state.skipped || {};
+  const overrides = new Set(state.skipOverrides || []);
+  const isSkipped = (t: Topic) =>
+    !!skipped[t.id] || (topicMeta(t).tier === 'skip' && !overrides.has(t.id));
+  const rank = (t: Topic) =>
+    ({ essential: 0, high: 1, selective: 2, skip: 3 })[topicMeta(t).tier];
+  const candidates = topics
+    .filter(
       (t) =>
         t.subject === subject &&
         !t.practice &&
         !t.previous &&
+        !isSkipped(t) &&
+        !completed(t, state),
+    )
+    .sort((a, b) => rank(a) - rank(b));
+  return (
+    candidates[0] ||
+    topics.find(
+      (t) =>
+        t.subject === subject &&
+        !t.practice &&
+        !isSkipped(t) &&
         !completed(t, state),
     ) ||
     topics.find(
-      (t) => t.subject === subject && !t.practice && !completed(t, state),
+      (t) =>
+        !t.practice && !t.previous && !isSkipped(t) && !completed(t, state),
     ) ||
-    topics.find((t) => !t.practice && !t.previous && !completed(t, state)) ||
+    topics.find((t) => !t.practice && !isSkipped(t)) ||
     topics[0]
   );
 }
@@ -237,6 +427,8 @@ export function makeFocusedPlan(
   mode?: number,
   focus?: string,
 ): DayPlan {
+  if (day < programStart)
+    return { mode: 0, focus: 's0-7', ids: [], kind: 'prestart', version: 2 };
   const old = state.plans[day];
   const limit =
     mode ??
@@ -326,7 +518,19 @@ export function withToday(state: StudyState, day: string) {
     ? state
     : {
         ...state,
-        plans: { ...state.plans, [day]: makeBalancedPlan(state, day) },
+        plans: {
+          ...state.plans,
+          [day]:
+            day < programStart
+              ? {
+                  mode: 0,
+                  focus: 's0-7',
+                  ids: [],
+                  kind: 'prestart' as const,
+                  version: 2 as const,
+                }
+              : makeBalancedPlan(state, day),
+        },
       };
 }
 
@@ -493,6 +697,8 @@ export function makeBalancedPlan(
   day: string,
   mode?: number,
 ): DayPlan {
+  if (day < programStart)
+    return { mode: 0, focus: 's0-7', ids: [], kind: 'prestart', version: 2 };
   const old = state.plans[day];
   const limit =
     mode ?? (old && old.kind !== 'exam' ? old.mode : defaultMode(day));
@@ -644,6 +850,32 @@ export function validateState(value: unknown): value is StudyState {
     Array.isArray(s.extra)
   )
     return false;
+  const validDay = (d: string) =>
+    /^20\d{2}-\d{2}-\d{2}$/.test(d) && !Number.isNaN(Date.parse(d));
+  if (
+    s.skipped !== undefined &&
+    (!s.skipped ||
+      typeof s.skipped !== 'object' ||
+      Array.isArray(s.skipped) ||
+      Object.keys(s.skipped).length > 128 ||
+      !Object.entries(s.skipped).every(
+        ([id, d]) =>
+          topics.some((t) => t.id === id && !t.practice) &&
+          typeof d === 'string' &&
+          validDay(d),
+      ))
+  )
+    return false;
+  if (
+    s.skipOverrides !== undefined &&
+    (!Array.isArray(s.skipOverrides) ||
+      s.skipOverrides.length > 128 ||
+      new Set(s.skipOverrides).size !== s.skipOverrides.length ||
+      !s.skipOverrides.every((id) =>
+        topics.some((t) => t.id === id && !t.practice),
+      ))
+  )
+    return false;
   if (Object.keys(s.done).length > 4000 || Object.keys(s.plans).length > 400)
     return false;
   if (
@@ -662,8 +894,6 @@ export function validateState(value: unknown): value is StudyState {
     Boolean(customStep(id, s)) ||
     /^paragraph:20\d{2}-\d{2}-\d{2}$/.test(id) ||
     (id.startsWith('recall:') && topics.some((t) => `recall:${t.id}` === id));
-  const validDay = (d: string) =>
-    /^20\d{2}-\d{2}-\d{2}$/.test(d) && !Number.isNaN(Date.parse(d));
   return (
     Object.entries(s.done).every(
       ([id, d]) => validId(id) && typeof d === 'string' && validDay(d),
@@ -672,13 +902,16 @@ export function validateState(value: unknown): value is StudyState {
       ([day, p]) =>
         validDay(day) &&
         p &&
-        (p.kind === 'exam'
-          ? Number.isInteger(p.mode) && p.mode >= 170 && p.mode <= 1000
-          : [25, 50, 100, 150, 200, 240, 360].includes(p.mode)) &&
-        (p.kind === undefined || ['mixed', 'focus', 'exam'].includes(p.kind)) &&
+        Array.isArray(p.ids) &&
+        (p.kind === 'prestart'
+          ? p.mode === 0 && p.ids.length === 0
+          : p.kind === 'exam'
+            ? Number.isInteger(p.mode) && p.mode >= 170 && p.mode <= 1000
+            : [25, 50, 100, 150, 200, 240, 360].includes(p.mode)) &&
+        (p.kind === undefined ||
+          ['mixed', 'focus', 'exam', 'prestart'].includes(p.kind)) &&
         (p.version === undefined || p.version === 2) &&
         topics.some((t) => t.id === p.focus) &&
-        Array.isArray(p.ids) &&
         p.ids.length <= 50 &&
         new Set(p.ids).size === p.ids.length &&
         p.ids.every((id) => typeof id === 'string' && validId(id)),

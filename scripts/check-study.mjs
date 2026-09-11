@@ -25,16 +25,29 @@ assert(
     (t) => t.high >= t.low && m.topicSteps(t, m.emptyState()).length > 0,
   ),
 );
-let state = m.withToday(m.emptyState(), '2026-09-08');
-assert.equal(state.plans['2026-09-08'].focus, 's0-7');
+let state = m.withToday(m.emptyState(), '2026-09-13');
+assert.equal(state.plans['2026-09-13'].focus, 's0-7');
 assert.equal(
-  m.daySteps(state, '2026-09-08').reduce((n, s) => n + s.minutes, 0),
+  m.daySteps(state, '2026-09-13').reduce((n, s) => n + s.minutes, 0),
   50,
 );
-assert.equal(m.daySteps(state, '2026-09-08')[0].id, 's0-7:learn-0');
-const short = m.makePlan(state, '2026-09-08', 25);
+assert.equal(m.daySteps(state, '2026-09-13')[0].id, 's0-7:learn-0');
+const short = m.makePlan(state, '2026-09-13', 25);
 assert.deepEqual(short.ids, ['s0-7:learn-0']);
-state.done['s0-7:learn-0'] = '2026-09-08';
+const prestart = m.withToday(m.emptyState(), '2026-09-12');
+assert.equal(prestart.plans['2026-09-12'].kind, 'prestart');
+assert.equal(m.daySteps(prestart, '2026-09-12').length, 0);
+assert.equal(m.topicMeta(m.topics.find((t) => t.id === 's0-7')).tier, 'essential');
+assert.equal(m.topicMeta(m.topics.find((t) => t.id === 's0-32')).tier, 'skip');
+assert(m.topicVideoUrl(m.topics.find((t) => t.id === 's0-7')).includes('iU2fbEeyIYE'));
+const skipped = m.emptyState();
+skipped.skipped = { 's0-7': '2026-09-13' };
+assert.notEqual(m.nextTopic(skipped, 'Matematik').id, 's0-7');
+skipped.skipped = {};
+skipped.skipOverrides = ['s0-32'];
+assert.equal(m.nextTopic(skipped, 'Matematik').id, 's0-7');
+assert(m.validateState(skipped));
+state.done['s0-7:learn-0'] = '2026-09-13';
 state = m.withToday(state, '2026-09-20');
 assert.equal(Object.keys(state.plans).length, 2);
 const continuation = m.makePlan(state, '2026-09-20', 50, 's0-7');
@@ -57,7 +70,7 @@ console.log(
   'Study checks passed: topic coverage, budgets, continuation, completion, input validation.',
 );
 
-const today = '2026-09-08';
+const today = '2026-09-13';
 const initialMixed = m.withToday(m.emptyState(), today);
 assert.equal(initialMixed.plans[today].kind, 'mixed');
 assert.deepEqual(
@@ -99,7 +112,7 @@ assert(m.validateState(upgraded));
 assert.equal(m.withToday(upgraded, today), upgraded);
 let cycle = m.emptyState();
 for (let i = 0; i < 6; i++) {
-  const day = `2026-09-${String(8 + i * 2).padStart(2, '0')}`;
+    const day = `2026-09-${String(13 + i * 2).padStart(2, '0')}`;
   assert.equal(m.studiedDayCount(cycle, day), i);
   assert.deepEqual(
     m.programSlots(cycle, day, 50).map((x) => x.subject),
@@ -110,13 +123,13 @@ for (let i = 0; i < 6; i++) {
 }
 const spaced = m.emptyState();
 for (const st of m.topicSteps(topic, spaced)) spaced.done[st.id] = today;
-spaced.plans['2026-09-09'] = m.makeBalancedPlan(spaced, '2026-09-09', 100);
-assert(spaced.plans['2026-09-09'].ids.includes('spaced:s0-7:1'));
-spaced.done['spaced:s0-7:1'] = '2026-09-09';
-spaced.plans['2026-09-10'] = m.makeBalancedPlan(spaced, '2026-09-10', 100);
-assert(!spaced.plans['2026-09-10'].ids.includes('spaced:s0-7:3'));
-spaced.plans['2026-09-11'] = m.makeBalancedPlan(spaced, '2026-09-11', 100);
-assert(spaced.plans['2026-09-11'].ids.includes('spaced:s0-7:3'));
+spaced.plans['2026-09-14'] = m.makeBalancedPlan(spaced, '2026-09-14', 100);
+assert(spaced.plans['2026-09-14'].ids.includes('spaced:s0-7:1'));
+spaced.done['spaced:s0-7:1'] = '2026-09-14';
+spaced.plans['2026-09-15'] = m.makeBalancedPlan(spaced, '2026-09-15', 100);
+assert(!spaced.plans['2026-09-15'].ids.includes('spaced:s0-7:3'));
+spaced.plans['2026-09-16'] = m.makeBalancedPlan(spaced, '2026-09-16', 100);
+assert(spaced.plans['2026-09-16'].ids.includes('spaced:s0-7:3'));
 assert(m.validateState(spaced));
 const mock = m.emptyState();
 mock.plans[today] = m.makeExamPlan(mock, today);

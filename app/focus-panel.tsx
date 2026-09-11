@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { Play, Pause, Check, Timer, ArrowRight, Coffee } from 'lucide-react';
+import { Play, Pause, Check, Timer, Coffee } from 'lucide-react';
 import {
   Select,
   SelectContent,
@@ -9,7 +9,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
-import { timerRemaining, type FocusTimer } from '@/lib/companion';
+import { timerRemaining } from '@/lib/companion';
 import { topics, type Step, type StudyState } from '@/lib/study';
 export type SaveStudy = (
   update: (s: StudyState) => StudyState,

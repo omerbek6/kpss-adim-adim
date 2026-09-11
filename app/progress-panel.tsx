@@ -17,13 +17,7 @@ import {
   weekMinutes,
   type ExamResult,
 } from '@/lib/companion';
-import {
-  topics,
-  subjects,
-  completed,
-  topicSteps,
-  type StudyState,
-} from '@/lib/study';
+import { topics, subjects, completed, type StudyState } from '@/lib/study';
 import type { SaveStudy } from './focus-panel';
 const fmt = (n: number) =>
   n.toLocaleString('tr-TR', { maximumFractionDigits: 2 });

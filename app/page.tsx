@@ -21,7 +21,6 @@ import {
   BookOpen,
   CloudCheck,
   RefreshCw,
-  ArrowLeft,
   CalendarDays,
   House,
   ChartNoAxesCombined,
@@ -46,6 +45,10 @@ import {
   rangeLabel,
   formatMinutes,
   nextTopic,
+  topicMeta,
+  topicVideoLabel,
+  topicVideoUrl,
+  programStart,
   workEnd,
   examDate,
   type StudyState,
@@ -58,6 +61,7 @@ import { FocusPanel } from './focus-panel';
 import { ProgressPanel } from './progress-panel';
 import { PwaPanel, usePwa } from './pwa-panel';
 import { TopicNotes } from './topic-notes';
+import { PriorityPanel, topicMatchesPriority } from './priority-panel';
 import { studyRequest } from '@/lib/client-request';
 
 export default function Home() {
@@ -221,6 +225,12 @@ export default function Home() {
               name: t.name,
               estimate: rangeLabel(t),
               completed: completed(t, stateRef.current),
+              priority: topicMeta(t).tier,
+              skipped:
+                !!stateRef.current.skipped?.[t.id] ||
+                (topicMeta(t).tier === 'skip' &&
+                  !stateRef.current.skipOverrides?.includes(t.id)),
+              videoUrl: topicVideoUrl(t),
             })),
         }),
         (id, checked) => setStepRef.current(id, checked),
@@ -251,11 +261,17 @@ export default function Home() {
     t.name
       .toLocaleLowerCase('tr-TR')
       .includes(query.trim().toLocaleLowerCase('tr-TR')) &&
-    (topicFilter === 'all' ||
-      (topicFilter === 'revisit' && state.favorites?.includes(t.id)) ||
-      (topicFilter === 'started' &&
-        topicSteps(t, state).some((s) => state.done[s.id]) &&
-        !completed(t, state)));
+    (topicFilter === 'revisit'
+      ? !!state.favorites?.includes(t.id)
+      : topicFilter === 'started'
+        ? topicSteps(t, state).some((s) => state.done[s.id]) &&
+          !completed(t, state)
+        : topicMatchesPriority(
+            t,
+            topicFilter,
+            state.skipped,
+            state.skipOverrides,
+          ));
   const openTopic = (id: string) => {
     const t = topics.find((t) => t.id === id);
     if (!t) return;
@@ -266,7 +282,39 @@ export default function Home() {
     setTab('topics');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
+  const setSkipped = (t: Topic, skip: boolean) => {
+    safe(
+      change(
+        (s) => {
+          const skipped = { ...(s.skipped || {}) };
+          const overrides = new Set(s.skipOverrides || []);
+          if (skip) {
+            skipped[t.id] = date || dayKey();
+            overrides.delete(t.id);
+          } else {
+            delete skipped[t.id];
+            if (topicMeta(t).tier === 'skip') overrides.add(t.id);
+            else overrides.delete(t.id);
+          }
+          const next = { ...s, skipped, skipOverrides: [...overrides] };
+          return date && date >= programStart
+            ? {
+                ...next,
+                plans: {
+                  ...next.plans,
+                  [date]: makeBalancedPlan(next, date),
+                },
+              }
+            : next;
+        },
+        skip
+          ? 'Bu konu bu tur plana alınmayacak.'
+          : 'Konu tekrar plana açıldı.',
+      ),
+    );
+  };
   const afterWork = !!date && date > workEnd;
+  const beforeStart = !!date && date < programStart;
   const mixed = plan?.kind === 'mixed';
   const isExam = plan?.kind === 'exam';
   const programSubjects = [
@@ -359,9 +407,13 @@ export default function Home() {
     const st = topicSteps(t, state);
     const count = st.filter((s) => state.done[s.id]).length;
     const isDone = completed(t, state);
+    const meta = topicMeta(t);
+    const isSkipped =
+      !!state.skipped?.[t.id] ||
+      (meta.tier === 'skip' && !state.skipOverrides?.includes(t.id));
     return (
       <article
-        className={`topic-item ${isDone ? 'topic-done' : ''}`}
+        className={`topic-item ${isDone ? 'topic-done' : ''} ${isSkipped ? 'topic-skipped' : ''}`}
         key={t.id}
       >
         <button
@@ -373,7 +425,12 @@ export default function Home() {
             {isDone ? <Check size={19} /> : <BookOpen size={18} />}
           </span>
           <span className="topic-title">
-            <strong>{t.name}</strong>
+            <strong>
+              {t.name}
+              <span className={`priority-badge priority-${meta.tier}`}>
+                {isSkipped ? 'Bu tur geçildi' : meta.label}
+              </span>
+            </strong>
             <span>
               {isDone
                 ? 'İlk çalışma tamam'
@@ -402,20 +459,39 @@ export default function Home() {
               tahmini. Kitaptaki bütün soruları bitirme süresi değil. Sonraki
               gün 10 dakika tekrar ekle.
             </p>
+            <div className="topic-decision">
+              <span>
+                <strong>{meta.label}:</strong> {meta.reason}
+              </span>
+              {!t.practice && (
+                <button
+                  className="plain-btn skip-button"
+                  disabled={!ready || busy}
+                  onClick={() => setSkipped(t, !isSkipped)}
+                >
+                  {isSkipped ? 'Bu konuyu geri aç' : 'Bu turda geç'}
+                </button>
+              )}
+            </div>
             <div className="topic-actions">
               <button
                 className="primary-btn"
-                disabled={busy || !ready}
+                disabled={busy || !ready || beforeStart}
                 onClick={() => safe(selectTopic(t))}
               >
-                Bugün bunu çalış <ChevronRight size={16} />
+                {beforeStart ? '13 Eylül’de başlıyoruz' : 'Bugün bunu çalış'}{' '}
+                {!beforeStart && <ChevronRight size={16} />}
               </button>
+              <a href={topicVideoUrl(t)} target="_blank" rel="noreferrer">
+                {topicVideoLabel(t)} <ArrowUpRight size={16} />
+              </a>
               <a
+                className="teacher-playlist-link"
                 href={teachers[t.subject].url}
                 target="_blank"
                 rel="noreferrer"
               >
-                {teachers[t.subject].name} <ArrowUpRight size={16} />
+                Kanal / oynatma listesi <ArrowUpRight size={15} />
               </a>
             </div>
             <Progress
@@ -514,11 +590,15 @@ export default function Home() {
         <div className="page-heading">
           <div>
             <p className="eyebrow">{dateLabel.toLocaleUpperCase('tr-TR')}</p>
-            <h1>Hedefin için, bugün.</h1>
+            <h1>
+              {beforeStart ? 'Pazar günü başlıyoruz.' : 'Hedefin için, bugün.'}
+            </h1>
             <p>
-              {afterWork
-                ? 'Artık daha fazla zamanın var. Çalışmaları gün içine yay.'
-                : '27 Eylül’e kadar 09.00–18.00 çalışıyorsun. Akşam için küçük bir hedef seç.'}
+              {beforeStart
+                ? '13 Eylül’e kadar ders borcu yok; başlangıç gününe hazırlan.'
+                : afterWork
+                  ? 'Artık daha fazla zamanın var. Çalışmaları gün içine yay.'
+                  : '27 Eylül’e kadar 09.00–18.00 çalışıyorsun. Akşam için küçük bir hedef seç.'}
             </p>
           </div>
           <a
@@ -600,343 +680,376 @@ export default function Home() {
             </TabsTrigger>
           </TabsList>
           <TabsContent value="today">
-            {date && ready && (
-              <FocusPanel
-                state={state}
-                date={date}
-                next={steps.find((s) => !state.done[s.id])}
-                disabled={blocked}
-                onSave={change}
-                onComplete={(id) => setStep(id, true)}
-              />
-            )}
-            <div className="mode-section">
-              <p>Bugün ne kadar enerjin var?</p>
-              <Tabs
-                value={isExam ? 'exam' : String(plan?.mode || 50)}
-                onValueChange={(value) =>
-                  safe(
-                    change(
-                      (s) => ({
-                        ...s,
-                        plans: {
-                          ...s.plans,
-                          [date]: makePlan(s, date, Number(value)),
-                        },
-                      }),
-                      'Bugünkü süre değişti.',
-                    ),
-                  )
-                }
-              >
-                <TabsList className="mode-list">
-                  {modes.map((m) => (
-                    <TabsTrigger
-                      key={m.value}
-                      value={String(m.value)}
-                      disabled={blocked}
-                    >
-                      <strong>{m.label}</strong>
-                      <span>{m.value} dakika</span>
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
-              </Tabs>
-            </div>
-            <div className="work-grid">
-              <section className="today-card" aria-busy={!ready}>
-                <div className="card-top">
-                  <span className="subject-tag">
-                    {isExam
-                      ? 'DENEME GÜNÜ'
-                      : mixed
-                        ? 'DENGELİ PROGRAM'
-                        : focus.subject.toLocaleUpperCase('tr-TR')}
-                  </span>
-                  <span className="time-tag">
-                    <Clock3 size={16} />
-                    {totalMinutes} dk net çalışma
-                  </span>
+            {beforeStart ? (
+              <section className="start-card">
+                <div className="start-card-mark">
+                  <CalendarDays size={24} />
                 </div>
-                <h2>
-                  {isExam
-                    ? 'Deneme + yanlışları inceleme'
-                    : mixed
-                      ? programSubjects.length
-                        ? programSubjects.join(' + ')
-                        : 'Hafif tekrar günü'
-                      : focus.name}
-                </h2>
-                <p>
-                  {isExam
-                    ? 'Normal dersler yerine bugün bir deneme ve yanlışlarını inceleme var.'
-                    : mixed
-                      ? 'Dersleri aşağıdaki sırayla, ayrı çalışma parçaları olarak yap. Her derste kaldığın yer korunur.'
-                      : focus.id === 's0-7'
-                        ? 'Faktöriyelden sonraki adımın bu. Önceki konulara baştan dönmen gerekmiyor.'
-                        : 'Bugün bu konunun sıradaki küçük adımlarını çalış.'}
-                </p>
-                <div className="balanced-actions">
-                  <button
-                    className="plain-btn"
-                    onClick={() => setTab('program')}
-                  >
-                    Programın tamamını gör <ChevronRight size={16} />
-                  </button>
-                  {(!mixed || plan?.version !== 2) && (
+                <div>
+                  <p className="eyebrow">BAŞLANGIÇ TARİHİN</p>
+                  <h2>13 Eylül Pazar günü başlıyoruz.</h2>
+                  <p>
+                    Bugün ve yarın ders borcu yok. Kitabını, kalemini ve ilk
+                    deneme için ayıracağın yeri hazırla; Pazar günü site seni
+                    doğrudan ilk küçük adıma götürecek.
+                  </p>
+                  <div className="start-card-actions">
                     <button
                       className="primary-btn"
-                      disabled={blocked}
-                      onClick={() =>
-                        safe(
-                          change(
-                            (s) => ({
-                              ...s,
-                              plans: {
-                                ...s.plans,
-                                [date]: makeBalancedPlan(
-                                  s,
-                                  date,
-                                  isExam ? undefined : plan?.mode,
-                                ),
-                              },
-                            }),
-                            'Dengeli program hazır; tiklerin korundu.',
-                          ),
-                        )
-                      }
+                      onClick={() => setTab('program')}
                     >
-                      Dengeli programa dön
+                      Pazar programını incele <ChevronRight size={17} />
                     </button>
-                  )}
-                </div>
-                <details className="focus-override">
-                  <summary>
-                    Bugün yalnızca bir konuya odaklanmak istiyorum
-                  </summary>
-                  <div className="focus-picker">
-                    <label id="focus-label">Tek ders seç</label>
-                    <Select
-                      value={focus.subject}
-                      onValueChange={(value) => {
-                        if (typeof value === 'string')
-                          safe(selectTopic(nextTopic(state, value)));
-                      }}
-                    >
-                      <SelectTrigger
-                        aria-labelledby="focus-label"
-                        disabled={blocked}
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {subjects.map((s) => (
-                          <SelectItem key={s} value={s}>
-                            {s}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </details>
-                {ready ? (
-                  <>
-                    <div className="daily-progress">
-                      <span>
-                        {doneToday} / {steps.length} adım
-                      </span>
-                      <span>{doneMinutes} dk işaretledin</span>
-                    </div>
-                    <Progress
-                      value={
-                        steps.length ? (doneToday / steps.length) * 100 : 0
-                      }
-                      aria-label="Bugünkü ilerleme"
-                    />
-                    {steps.map((s) => row(s, 'today-'))}
-                    {mixed &&
-                      totalMinutes < (plan?.mode || 0) &&
-                      date < '2026-10-23' && (
-                        <div className="program-budget-note">
-                          <p>
-                            Seçtiğin süre bir üst sınır. Önce bu adımları bitir;
-                            konu kontrolünü geçtiğinde kalan süreye yeni adımlar
-                            alabilirsin. Süreyi doldurmak zorunda değilsin.
-                          </p>
-                          <button
-                            className="plain-btn"
-                            disabled={blocked}
-                            onClick={() =>
-                              safe(
-                                change(
-                                  (s) => ({
-                                    ...s,
-                                    plans: {
-                                      ...s.plans,
-                                      [date]: makeBalancedPlan(s, date),
-                                    },
-                                  }),
-                                  'Kalan süreye uygun adımlar güncellendi.',
-                                ),
-                              )
-                            }
-                          >
-                            Kalan süre için adımları yenile{' '}
-                            <RefreshCw size={15} />
-                          </button>
-                        </div>
-                      )}
-                    {steps.length > 0 && doneToday === steps.length && (
-                      <div className="success-box">
-                        <Check size={21} />
-                        <div>
-                          <strong>Bugün için bu kadar yeterli.</strong>
-                          <p>Yarın kaldığın yerden devam edeceksin.</p>
-                        </div>
-                      </div>
-                    )}
-                    {!steps.length && (
-                      <p className="empty-copy">
-                        Bu konu için seçtiğin süreye sığan adım kalmadı. Süreyi
-                        artırabilir veya başka konu seçebilirsin.
-                      </p>
-                    )}
-                  </>
-                ) : (
-                  <div className="loading-copy">
-                    <RefreshCw size={20} />
-                    Çalışma adımların yükleniyor…
-                  </div>
-                )}
-                {!isExam && !mixed && (
-                  <>
-                    <a
-                      className="lesson-link"
-                      href={
-                        focus.id === 's0-7'
-                          ? 'https://www.youtube.com/watch?v=iU2fbEeyIYE'
-                          : teachers[focus.subject].url
-                      }
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      {teachers[focus.subject].name} · konu anlatımını aç{' '}
-                      <ArrowUpRight size={17} />
-                    </a>
-                    <p className="lesson-hint">
-                      Pegem’de aynı başlığı aç. Videodaki konu sırası farklıysa
-                      başlığın adıyla ilerle.
-                    </p>
                     <button
                       className="plain-btn"
-                      onClick={() => {
-                        setSubject(focus.subject);
-                        setExpanded(focus.id);
-                        setTab('topics');
-                      }}
+                      onClick={() => setTab('topics')}
                     >
-                      Bu konunun bütün adımlarını gör <ChevronRight size={16} />
+                      Öncelik sırasını gör <ChevronRight size={16} />
                     </button>
-                  </>
-                )}
-                {mixed && (
-                  <div className="mixed-lessons">
-                    {programSubjects.map(
-                      (s) =>
-                        s && (
-                          <a
-                            className="lesson-link"
-                            href={teachers[s].url}
-                            target="_blank"
-                            rel="noreferrer"
-                            key={s}
-                          >
-                            {s} · {teachers[s].name}
-                            <ArrowUpRight size={16} />
-                          </a>
-                        ),
-                    )}
-                    <p className="lesson-hint">
-                      Pegem’de adımın konu başlığını aç. Videoların sırası
-                      kitaptan farklı olabilir.
-                    </p>
                   </div>
-                )}
+                </div>
               </section>
-              <aside className="right-column">
-                <div className="guide-card">
-                  <p className="eyebrow">
-                    {mixed || isExam
-                      ? 'BUGÜNÜN ÇALIŞMA BÜTÇESİ'
-                      : 'BU KONUYA NE KADAR AYIRAYIM?'}
-                  </p>
-                  <h2>
-                    {mixed || isExam
-                      ? formatMinutes(plan?.mode || 50)
-                      : rangeLabel(focus)}
-                  </h2>
-                  <p>
-                    {mixed || isExam
-                      ? 'Yemek ve molalar bu süreye dâhil değil. Adımların gerçek plan toplamı solda yazıyor.'
-                      : 'İlk çalışma için tahmini toplam süre. Anlatım, sorular ve yanlışlarına dönüş dâhil.'}
-                  </p>
-                  <div className="rule-note">
-                    Bir parça: <strong>25 dakika</strong>
-                    <br />
-                    Ardından: <strong>5 dakika ara</strong>
+            ) : (
+              <>
+                {date && ready && (
+                  <FocusPanel
+                    state={state}
+                    date={date}
+                    next={steps.find((s) => !state.done[s.id])}
+                    disabled={blocked}
+                    onSave={change}
+                    onComplete={(id) => setStep(id, true)}
+                  />
+                )}
+                <div className="mode-section">
+                  <p>Bugün ne kadar enerjin var?</p>
+                  <Tabs
+                    value={isExam ? 'exam' : String(plan?.mode || 50)}
+                    onValueChange={(value) =>
+                      safe(
+                        change(
+                          (s) => ({
+                            ...s,
+                            plans: {
+                              ...s.plans,
+                              [date]: makePlan(s, date, Number(value)),
+                            },
+                          }),
+                          'Bugünkü süre değişti.',
+                        ),
+                      )
+                    }
+                  >
+                    <TabsList className="mode-list">
+                      {modes.map((m) => (
+                        <TabsTrigger
+                          key={m.value}
+                          value={String(m.value)}
+                          disabled={blocked}
+                        >
+                          <strong>{m.label}</strong>
+                          <span>{m.value} dakika</span>
+                        </TabsTrigger>
+                      ))}
+                    </TabsList>
+                  </Tabs>
+                </div>
+                <div className="work-grid">
+                  <section className="today-card" aria-busy={!ready}>
+                    <div className="card-top">
+                      <span className="subject-tag">
+                        {isExam
+                          ? 'DENEME GÜNÜ'
+                          : mixed
+                            ? 'DENGELİ PROGRAM'
+                            : focus.subject.toLocaleUpperCase('tr-TR')}
+                      </span>
+                      <span className="time-tag">
+                        <Clock3 size={16} />
+                        {totalMinutes} dk net çalışma
+                      </span>
+                    </div>
+                    <h2>
+                      {isExam
+                        ? 'Deneme + yanlışları inceleme'
+                        : mixed
+                          ? programSubjects.length
+                            ? programSubjects.join(' + ')
+                            : 'Hafif tekrar günü'
+                          : focus.name}
+                    </h2>
+                    <p>
+                      {isExam
+                        ? 'Normal dersler yerine bugün bir deneme ve yanlışlarını inceleme var.'
+                        : mixed
+                          ? 'Dersleri aşağıdaki sırayla, ayrı çalışma parçaları olarak yap. Her derste kaldığın yer korunur.'
+                          : focus.id === 's0-7'
+                            ? 'Faktöriyelden sonraki adımın bu. Önceki konulara baştan dönmen gerekmiyor.'
+                            : 'Bugün bu konunun sıradaki küçük adımlarını çalış.'}
+                    </p>
+                    <div className="balanced-actions">
+                      <button
+                        className="plain-btn"
+                        onClick={() => setTab('program')}
+                      >
+                        Programın tamamını gör <ChevronRight size={16} />
+                      </button>
+                      {(!mixed || plan?.version !== 2) && (
+                        <button
+                          className="primary-btn"
+                          disabled={blocked}
+                          onClick={() =>
+                            safe(
+                              change(
+                                (s) => ({
+                                  ...s,
+                                  plans: {
+                                    ...s.plans,
+                                    [date]: makeBalancedPlan(
+                                      s,
+                                      date,
+                                      isExam ? undefined : plan?.mode,
+                                    ),
+                                  },
+                                }),
+                                'Dengeli program hazır; tiklerin korundu.',
+                              ),
+                            )
+                          }
+                        >
+                          Dengeli programa dön
+                        </button>
+                      )}
+                    </div>
+                    <details className="focus-override">
+                      <summary>
+                        Bugün yalnızca bir konuya odaklanmak istiyorum
+                      </summary>
+                      <div className="focus-picker">
+                        <label id="focus-label">Tek ders seç</label>
+                        <Select
+                          value={focus.subject}
+                          onValueChange={(value) => {
+                            if (typeof value === 'string')
+                              safe(selectTopic(nextTopic(state, value)));
+                          }}
+                        >
+                          <SelectTrigger
+                            aria-labelledby="focus-label"
+                            disabled={blocked}
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {subjects.map((s) => (
+                              <SelectItem key={s} value={s}>
+                                {s}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </details>
+                    {ready ? (
+                      <>
+                        <div className="daily-progress">
+                          <span>
+                            {doneToday} / {steps.length} adım
+                          </span>
+                          <span>{doneMinutes} dk işaretledin</span>
+                        </div>
+                        <Progress
+                          value={
+                            steps.length ? (doneToday / steps.length) * 100 : 0
+                          }
+                          aria-label="Bugünkü ilerleme"
+                        />
+                        {steps.map((s) => row(s, 'today-'))}
+                        {mixed &&
+                          totalMinutes < (plan?.mode || 0) &&
+                          date < '2026-10-23' && (
+                            <div className="program-budget-note">
+                              <p>
+                                Seçtiğin süre bir üst sınır. Önce bu adımları
+                                bitir; konu kontrolünü geçtiğinde kalan süreye
+                                yeni adımlar alabilirsin. Süreyi doldurmak
+                                zorunda değilsin.
+                              </p>
+                              <button
+                                className="plain-btn"
+                                disabled={blocked}
+                                onClick={() =>
+                                  safe(
+                                    change(
+                                      (s) => ({
+                                        ...s,
+                                        plans: {
+                                          ...s.plans,
+                                          [date]: makeBalancedPlan(s, date),
+                                        },
+                                      }),
+                                      'Kalan süreye uygun adımlar güncellendi.',
+                                    ),
+                                  )
+                                }
+                              >
+                                Kalan süre için adımları yenile{' '}
+                                <RefreshCw size={15} />
+                              </button>
+                            </div>
+                          )}
+                        {steps.length > 0 && doneToday === steps.length && (
+                          <div className="success-box">
+                            <Check size={21} />
+                            <div>
+                              <strong>Bugün için bu kadar yeterli.</strong>
+                              <p>Yarın kaldığın yerden devam edeceksin.</p>
+                            </div>
+                          </div>
+                        )}
+                        {!steps.length && (
+                          <p className="empty-copy">
+                            Bu konu için seçtiğin süreye sığan adım kalmadı.
+                            Süreyi artırabilir veya başka konu seçebilirsin.
+                          </p>
+                        )}
+                      </>
+                    ) : (
+                      <div className="loading-copy">
+                        <RefreshCw size={20} />
+                        Çalışma adımların yükleniyor…
+                      </div>
+                    )}
+                    {!isExam && !mixed && (
+                      <>
+                        <a
+                          className="lesson-link"
+                          href={topicVideoUrl(focus)}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {topicVideoLabel(focus)} <ArrowUpRight size={17} />
+                        </a>
+                        <p className="lesson-hint">
+                          Pegem’de aynı başlığı aç. Videodaki konu sırası
+                          farklıysa başlığın adıyla ilerle.
+                        </p>
+                        <button
+                          className="plain-btn"
+                          onClick={() => {
+                            setSubject(focus.subject);
+                            setExpanded(focus.id);
+                            setTab('topics');
+                          }}
+                        >
+                          Bu konunun bütün adımlarını gör{' '}
+                          <ChevronRight size={16} />
+                        </button>
+                      </>
+                    )}
+                    {mixed && (
+                      <div className="mixed-lessons">
+                        {programSubjects.map((s) => {
+                          if (!s || !subjects.includes(s)) return null;
+                          const lesson = nextTopic(state, s);
+                          return (
+                            <a
+                              className="lesson-link"
+                              href={topicVideoUrl(lesson)}
+                              target="_blank"
+                              rel="noreferrer"
+                              key={s}
+                            >
+                              {topicVideoLabel(lesson)}
+                              <ArrowUpRight size={16} />
+                            </a>
+                          );
+                        })}
+                        <p className="lesson-hint">
+                          Pegem’de adımın konu başlığını aç. Videoların sırası
+                          kitaptan farklı olabilir.
+                        </p>
+                      </div>
+                    )}
+                  </section>
+                  <aside className="right-column">
+                    <div className="guide-card">
+                      <p className="eyebrow">
+                        {mixed || isExam
+                          ? 'BUGÜNÜN ÇALIŞMA BÜTÇESİ'
+                          : 'BU KONUYA NE KADAR AYIRAYIM?'}
+                      </p>
+                      <h2>
+                        {mixed || isExam
+                          ? formatMinutes(plan?.mode || 50)
+                          : rangeLabel(focus)}
+                      </h2>
+                      <p>
+                        {mixed || isExam
+                          ? 'Yemek ve molalar bu süreye dâhil değil. Adımların gerçek plan toplamı solda yazıyor.'
+                          : 'İlk çalışma için tahmini toplam süre. Anlatım, sorular ve yanlışlarına dönüş dâhil.'}
+                      </p>
+                      <div className="rule-note">
+                        Bir parça: <strong>25 dakika</strong>
+                        <br />
+                        Ardından: <strong>5 dakika ara</strong>
+                      </div>
+                      <p>
+                        Bir dersi tamamen bitirmeden diğerine geçebilirsin.
+                        Önemli olan her çalışmada soru çözmek ve eski bilgilere
+                        geri dönmek.
+                      </p>
+                    </div>
+                    <div className="gentle-note">
+                      <h3>Bir gün kaçarsa?</h3>
+                      <p>
+                        Yapmadığın işler üst üste yığılmaz. İşaretlerin kalır;
+                        sıradaki adımdan devam edersin.
+                      </p>
+                    </div>
+                    <div className="tiny-stats">
+                      <span>
+                        <strong>{Object.keys(state.done).length}</strong> küçük
+                        adım
+                      </span>
+                      <span>
+                        <strong>{completedCount}</strong> konu ilk çalışması
+                      </span>
+                    </div>
+                  </aside>
+                </div>
+                <section className="pace-card">
+                  <h3>27 Eylül’e kadar kendini tüketmeden</h3>
+                  <div className="pace-grid">
+                    <div>
+                      <span>ŞİMDİ → 27 EYLÜL</span>
+                      <strong>İş günü 25–50 dk</strong>
+                      <p>
+                        İzin gününde 100 dakikayı ikiye böl. İzin gününü kendin
+                        seç; takvim tahmin etmiyor.
+                      </p>
+                    </div>
+                    <div>
+                      <span>28 → 30 EYLÜL</span>
+                      <strong>Güne yayılmış 4 saat</strong>
+                      <p>
+                        İşten çıkınca ilk günler bu tempoyla başla. Araları bu
+                        süreye ekle.
+                      </p>
+                    </div>
+                    <div>
+                      <span>1 → 22 EKİM</span>
+                      <strong>Sürdürebiliyorsan 6 saat</strong>
+                      <p>
+                        Deneme, eksik konular ve tekrar için de zaman ayır.
+                        İstersen kısa gün seçebilirsin. Son iki gün hafif tekrar
+                        var.
+                      </p>
+                    </div>
                   </div>
-                  <p>
-                    Bir dersi tamamen bitirmeden diğerine geçebilirsin. Önemli
-                    olan her çalışmada soru çözmek ve eski bilgilere geri
-                    dönmek.
-                  </p>
-                </div>
-                <div className="gentle-note">
-                  <h3>Bir gün kaçarsa?</h3>
-                  <p>
-                    Yapmadığın işler üst üste yığılmaz. İşaretlerin kalır;
-                    sıradaki adımdan devam edersin.
-                  </p>
-                </div>
-                <div className="tiny-stats">
-                  <span>
-                    <strong>{Object.keys(state.done).length}</strong> küçük adım
-                  </span>
-                  <span>
-                    <strong>{completedCount}</strong> konu ilk çalışması
-                  </span>
-                </div>
-              </aside>
-            </div>
-            <section className="pace-card">
-              <h3>27 Eylül’e kadar kendini tüketmeden</h3>
-              <div className="pace-grid">
-                <div>
-                  <span>ŞİMDİ → 27 EYLÜL</span>
-                  <strong>İş günü 25–50 dk</strong>
-                  <p>
-                    İzin gününde 100 dakikayı ikiye böl. İzin gününü kendin seç;
-                    takvim tahmin etmiyor.
-                  </p>
-                </div>
-                <div>
-                  <span>28 → 30 EYLÜL</span>
-                  <strong>Güne yayılmış 4 saat</strong>
-                  <p>
-                    İşten çıkınca ilk günler bu tempoyla başla. Araları bu
-                    süreye ekle.
-                  </p>
-                </div>
-                <div>
-                  <span>1 → 22 EKİM</span>
-                  <strong>Sürdürebiliyorsan 6 saat</strong>
-                  <p>
-                    Deneme, eksik konular ve tekrar için de zaman ayır. İstersen
-                    kısa gün seçebilirsin. Son iki gün hafif tekrar var.
-                  </p>
-                </div>
-              </div>
-            </section>
+                </section>
+              </>
+            )}
           </TabsContent>
           <TabsContent value="program">
             <ProgramPanel
@@ -972,13 +1085,20 @@ export default function Home() {
             />
           </TabsContent>
           <TabsContent value="topics">
+            <PriorityPanel
+              selected={topicFilter}
+              skipped={state.skipped}
+              skipOverrides={state.skipOverrides}
+              onFilter={(filter) => setTopicFilter(filter)}
+            />
             <div className="catalog-intro">
               <h2>Hangi konu, ne kadar süre?</h2>
               <p>
                 Süreler sana başlangıç noktası vermek için. Konu anlatımı + ilk
                 sorular + yanlışlara dönüşü içerir; bir günde bitirme
-                zorunluluğu yok. Buradaki ders sırası önem sırası değil;
-                dersleri Programım bölümündeki gibi birlikte ilerlet.
+                zorunluluğu yok. Yukarıdaki filtre, zamanı kısıtlı olduğunda
+                hangi başlıkları koruyacağını gösterir. Dersleri Programım
+                bölümündeki gibi birlikte ilerlet.
               </p>
             </div>
             <div className="topic-tools">
@@ -1000,6 +1120,12 @@ export default function Home() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Tüm konular</SelectItem>
+                  <SelectItem value="essential">Önce çalışacaklarım</SelectItem>
+                  <SelectItem value="high">Yüksek getirili konular</SelectItem>
+                  <SelectItem value="selective">
+                    Seçerek çalışacaklarım
+                  </SelectItem>
+                  <SelectItem value="skipped">Bu tur geçtiklerim</SelectItem>
                   <SelectItem value="started">Devam ettiklerim</SelectItem>
                   <SelectItem value="revisit">Tekrar edeceklerim</SelectItem>
                 </SelectContent>
