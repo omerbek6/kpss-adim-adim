@@ -268,7 +268,7 @@ export function firstStepDetail(t: Topic, index: number) {
   if (t.previous)
     return 'Daha önce baktığın konu. Önce birkaç örneği dene; hatırlamadığın kısmın anlatımına dön.';
   const part = t.book[Math.min(index, t.book.length - 1)];
-  return `${part.label} başlığından kaldığın yerden devam et. Video veya Pegem anlatımını 25 dakikada durdur; 3 kısa not al.`;
+  return `${part.label} başlığının anlatımını izle. Kaldığın dakikadan devam et; ardından 3 kuralı defterine yaz. Video uzunsa sayaca süre ekle; tüm konuyu tek oturumda bitirmek zorunda değilsin.`;
 }
 export function topicSteps(t: Topic, state: StudyState): Step[] {
   if (t.practice)
@@ -297,7 +297,7 @@ export function topicSteps(t: Topic, state: StudyState): Step[] {
     steps.push({
       id: `${t.id}:learn-${i}`,
       topicId: t.id,
-      title: `Konuyu çalış${rounds > 1 ? ` · ${i + 1}. parça` : ''}`,
+      title: `Konu anlatımını izle${rounds > 1 ? ` · ${i + 1}. bölüm` : ''}`,
       detail: firstStepDetail(t, i),
       minutes: 25,
       kind: 'learn',
@@ -305,9 +305,9 @@ export function topicSteps(t: Topic, state: StudyState): Step[] {
     steps.push({
       id: `${t.id}:practice-${i}`,
       topicId: t.id,
-      title: '5–10 soru dene',
+      title: '10 soru çöz ve cevaplarını kontrol et',
       detail:
-        'Pegem’den yalnızca çalıştığın bölümün sorularını çöz. 15 dakika dolunca dur; soru sayısını yetiştirmek zorunda değilsin.',
+        'Pegem’de bu konunun henüz çözmediğin ilk 10 sorusunu çöz. Ardından cevap anahtarıyla kontrol et; yanlış ve boş soruları işaretle. 15 dakika yetmezse 10 dakika ekle.',
       minutes: 15,
       kind: 'practice',
     });

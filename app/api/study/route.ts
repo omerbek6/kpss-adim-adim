@@ -1,19 +1,51 @@
 import { getStudyDb } from '@/db/state';
 import { emptyState, validateState } from '@/lib/study';
+import { studyIdentity } from '@/lib/identity';
+import { env } from 'cloudflare:workers';
 
 const reply = (data: unknown, status = 200) =>
   Response.json(data, { status, headers: { 'Cache-Control': 'no-store' } });
-// This personal workspace is served behind the owner-only Sites access gate.
-// It intentionally has one owner and does not offer shared or public access.
-export async function GET() {
+async function ensureUser(user: { id: string; email: string }) {
+  const db = getStudyDb();
+  const owner = (env as unknown as { LEGACY_OWNER_EMAIL?: string })
+    .LEGACY_OWNER_EMAIL;
+  // Copy legacy progress only to the verified owner's account. Preserve the old row as a backup.
+  if (owner && user.email.toLowerCase() === owner.toLowerCase()) {
+    await db
+      .prepare(
+        'INSERT OR IGNORE INTO user_study_state (user_id,data,revision) SELECT ?,data,revision FROM study_state WHERE id = 1',
+      )
+      .bind(user.id)
+      .run();
+  }
+  await db
+    .prepare(
+      'INSERT OR IGNORE INTO user_study_state (user_id,data,revision) VALUES (?,?,0)',
+    )
+    .bind(user.id, JSON.stringify(emptyState()))
+    .run();
+}
+export async function GET(request: Request) {
+  const user = studyIdentity(request);
+  if (!user)
+    return reply(
+      { error: 'Kayıtların için kendi ChatGPT hesabınla giriş yap.' },
+      401,
+    );
   try {
+    await ensureUser(user);
     const row = await getStudyDb()
-      .prepare('SELECT data, revision FROM study_state WHERE id = 1')
+      .prepare('SELECT data, revision FROM user_study_state WHERE user_id = ?')
+      .bind(user.id)
       .first<{ data: string; revision: number }>();
     return reply(
       row
-        ? { state: JSON.parse(row.data), revision: row.revision }
-        : { state: emptyState(), revision: 0 },
+        ? {
+            state: JSON.parse(row.data),
+            revision: row.revision,
+            account: { email: user.email },
+          }
+        : { state: emptyState(), revision: 0, account: { email: user.email } },
     );
   } catch {
     return reply(
@@ -25,6 +57,12 @@ export async function GET() {
   }
 }
 export async function PUT(request: Request) {
+  const user = studyIdentity(request);
+  if (!user)
+    return reply(
+      { error: 'Kayıtların için kendi ChatGPT hesabınla giriş yap.' },
+      401,
+    );
   try {
     const origin = request.headers.get('Origin');
     if (
@@ -54,17 +92,12 @@ export async function PUT(request: Request) {
     )
       return reply({ error: 'Geçersiz çalışma kaydı.' }, 400);
     const db = getStudyDb();
-    await db
-      .prepare(
-        'INSERT OR IGNORE INTO study_state (id,data,revision) VALUES (1,?,0)',
-      )
-      .bind(JSON.stringify(emptyState()))
-      .run();
+    await ensureUser(user);
     const result = await db
       .prepare(
-        'UPDATE study_state SET data = ?, revision = revision + 1 WHERE id = 1 AND revision = ?',
+        'UPDATE user_study_state SET data = ?, revision = revision + 1 WHERE user_id = ? AND revision = ?',
       )
-      .bind(JSON.stringify(body.state), body.revision)
+      .bind(JSON.stringify(body.state), user.id, body.revision)
       .run();
     if (result.meta.changes !== 1)
       return reply(

@@ -142,7 +142,7 @@ export function PwaPanel({
                 </a>
                 <p>
                   Bilgisayardaki “localhost” adresi telefonda açılmaz. Gerekirse
-                  bu sitenin sahibi olduğun hesapla giriş yap.
+                  erişim verilen kendi ChatGPT hesabınla giriş yap.
                 </p>
               </div>
             </li>

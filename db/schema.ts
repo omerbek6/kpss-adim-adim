@@ -4,3 +4,8 @@ export const studyState = sqliteTable('study_state', {
   data: text('data').notNull(),
   revision: integer('revision').notNull().default(0),
 });
+export const userStudyState = sqliteTable('user_study_state', {
+  userId: text('user_id').primaryKey(),
+  data: text('data').notNull(),
+  revision: integer('revision').notNull().default(0),
+});

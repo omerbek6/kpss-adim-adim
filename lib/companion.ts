@@ -6,6 +6,7 @@ export type FocusTimer = {
   duration: number;
   remaining: number;
   startedAt: number | null;
+  kind?: 'study' | 'break';
 };
 export type FocusSession = { day: string; seconds: number; label: string };
 export const examSections = [
@@ -29,6 +30,8 @@ export type CompanionState = {
   exams?: ExamResult[];
   notes?: Record<string, string>;
   favorites?: string[];
+  videoPositions?: Record<string, number>;
+  practiceAnswers?: Record<string, number[]>;
 };
 export function timerRemaining(t: FocusTimer, now = Date.now()) {
   return Math.max(
@@ -41,6 +44,38 @@ export function timerRemaining(t: FocusTimer, now = Date.now()) {
 }
 export function examNet(exam: ExamResult) {
   return exam.scores.reduce((n, s) => n + s.right - s.wrong / 4, 0);
+}
+export function saveTimer<T extends CompanionState>(
+  state: T,
+  now = Date.now(),
+): T {
+  const t = state.timer;
+  if (!t) return state;
+  const seconds = t.duration - timerRemaining(t, now);
+  return {
+    ...state,
+    timer: null,
+    focusSessions:
+      seconds > 0 && t.kind !== 'break'
+        ? {
+            ...state.focusSessions,
+            [t.id]: { day: t.day, seconds, label: t.label },
+          }
+        : state.focusSessions,
+  };
+}
+export function extendTimer(
+  t: FocusTimer,
+  seconds: number,
+  now = Date.now(),
+): FocusTimer {
+  const added = Math.min(seconds, 10800 - t.duration);
+  return {
+    ...t,
+    duration: t.duration + added,
+    remaining: timerRemaining(t, now) + added,
+    startedAt: t.startedAt === null ? null : now,
+  };
 }
 export function shiftDay(day: string, n: number) {
   return new Date(Date.parse(day + 'T12:00:00Z') + n * 86400000)
@@ -80,7 +115,10 @@ export function validateCompanion(s: CompanionState, topicIds: Set<string>) {
       !day(t.day) ||
       !small(t.label, 180) ||
       !small(t.stepId, 120) ||
-      ![300, 900, 1500, 3000].includes(t.duration) ||
+      !Number.isInteger(t.duration) ||
+      t.duration < 60 ||
+      t.duration > 10800 ||
+      (t.kind !== undefined && !['study', 'break'].includes(t.kind)) ||
       !Number.isInteger(t.remaining) ||
       t.remaining < 0 ||
       t.remaining > t.duration ||
@@ -102,7 +140,7 @@ export function validateCompanion(s: CompanionState, topicIds: Set<string>) {
           day(v.day) &&
           Number.isInteger(v.seconds) &&
           v.seconds >= 1 &&
-          v.seconds <= 3000 &&
+          v.seconds <= 10800 &&
           small(v.label, 180),
       ))
   )
@@ -149,6 +187,32 @@ export function validateCompanion(s: CompanionState, topicIds: Set<string>) {
       s.favorites.length > 128 ||
       new Set(s.favorites).size !== s.favorites.length ||
       !s.favorites.every((id) => topicIds.has(id)))
+  )
+    return false;
+  if (
+    s.videoPositions !== undefined &&
+    (!object(s.videoPositions) ||
+      Object.keys(s.videoPositions).length > 128 ||
+      !Object.entries(s.videoPositions).every(
+        ([key, value]) =>
+          topicIds.has(key) &&
+          Number.isInteger(value) &&
+          value >= 0 &&
+          value <= 36000,
+      ))
+  )
+    return false;
+  if (
+    s.practiceAnswers !== undefined &&
+    (!object(s.practiceAnswers) ||
+      Object.keys(s.practiceAnswers).length > 3 ||
+      !Object.entries(s.practiceAnswers).every(
+        ([key, values]) =>
+          ['s0-7', 's0-9', 's0-18'].includes(key) &&
+          Array.isArray(values) &&
+          values.length === 10 &&
+          values.every((n) => Number.isInteger(n) && n >= -1 && n <= 4),
+      ))
   )
     return false;
   return true;

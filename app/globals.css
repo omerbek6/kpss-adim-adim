@@ -28,10 +28,10 @@
   --radius-sm: 6px;
 }
 :root {
-  --background: #f3f6fb;
+  --background: #f4f6fa;
   --foreground: #162944;
   --card: #fff;
-  --primary: #244ed7;
+  --primary: #294bd6;
   --primary-foreground: #fff;
   --muted: #e9eef7;
   --muted-foreground: #52637b;

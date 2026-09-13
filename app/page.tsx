@@ -57,7 +57,8 @@ import {
 } from '@/lib/study';
 import { registerStudyTools } from '@/lib/webmcp';
 import { ProgramPanel } from './program-panel';
-import { FocusPanel } from './focus-panel';
+import { FocusPanel } from './study-station';
+import { saveTimer } from '@/lib/companion';
 import { ProgressPanel } from './progress-panel';
 import { PwaPanel, usePwa } from './pwa-panel';
 import { TopicNotes } from './topic-notes';
@@ -72,6 +73,7 @@ export default function Home() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [accountEmail, setAccountEmail] = useState('');
   const [date, setDate] = useState('');
   const [tab, setTab] = useState('today');
   const [subject, setSubject] = useState('Matematik');
@@ -95,6 +97,10 @@ export default function Home() {
     setError('');
     try {
       const response = await studyRequest({ cache: 'no-store' });
+      if (response.status === 401)
+        throw new Error(
+          'Kendi ChatGPT hesabınla giriş yap. Her kişinin kaydı ayrıdır.',
+        );
       if (!response.ok)
         throw new Error(
           'Kayıtlarına ulaşılamadı. İnternetini kontrol edip tekrar dene.',
@@ -104,8 +110,10 @@ export default function Home() {
       const data = (await response.json()) as {
         state: StudyState;
         revision: number;
+        account?: { email: string };
       };
       const day = dayKey();
+      setAccountEmail(data.account?.email || '');
       dateRef.current = day;
       setDate(day);
       sync(withToday(data.state, day), data.revision);
@@ -144,7 +152,14 @@ export default function Home() {
     setError('');
     setNotice('');
     const before = stateRef.current;
-    const next = transform(before);
+    let next: StudyState;
+    try {
+      next = transform(before);
+    } catch (e) {
+      busyRef.current = false;
+      setBusy(false);
+      throw e;
+    }
     stateRef.current = next;
     setState(next);
     try {
@@ -200,7 +215,10 @@ export default function Home() {
           )
             delete done[`${step.topicId}:check`];
         }
-        return { ...prev, done };
+        return {
+          ...(checked && prev.timer?.stepId === id ? saveTimer(prev) : prev),
+          done,
+        };
       },
       checked ? 'Bir adım daha tamamlandı.' : 'Tik kaldırıldı.',
     );
@@ -563,7 +581,7 @@ export default function Home() {
             ? 'Kaydediliyor'
             : ready
               ? pwa.online
-                ? 'Kayıtların yanında'
+                ? 'Kaydedildi'
                 : 'Çevrimdışısın'
               : 'Kayıtlar yükleniyor'}
         </span>
@@ -591,7 +609,7 @@ export default function Home() {
           <div>
             <p className="eyebrow">{dateLabel.toLocaleUpperCase('tr-TR')}</p>
             <h1>
-              {beforeStart ? 'Pazar günü başlıyoruz.' : 'Hedefin için, bugün.'}
+              {beforeStart ? 'Pazar günü başlıyoruz.' : 'Sıradaki çalışman'}
             </h1>
             <p>
               {beforeStart
@@ -644,6 +662,11 @@ export default function Home() {
         {error && (
           <div className="error-box" role="alert">
             <p>{error}</p>
+            {!ready && (
+              <a href="/signin-with-chatgpt?return_to=%2F" target="_top">
+                Kendi hesabımla giriş yap
+              </a>
+            )}
             <button onClick={() => void load()} disabled={busy}>
               Son kaydı tekrar yükle
             </button>
@@ -664,7 +687,7 @@ export default function Home() {
             </TabsTrigger>
             <TabsTrigger value="program">
               <CalendarDays />
-              Programım
+              Plan
             </TabsTrigger>
             <TabsTrigger value="topics">
               <BookOpen />
@@ -672,14 +695,14 @@ export default function Home() {
             </TabsTrigger>
             <TabsTrigger value="progress">
               <ChartNoAxesCombined />
-              İlerlemem
+              Kayıtlar
             </TabsTrigger>
             <TabsTrigger value="app">
               <Smartphone />
-              Uygulama
+              Ayarlar
             </TabsTrigger>
           </TabsList>
-          <TabsContent value="today">
+          <TabsContent value="today" keepMounted>
             {beforeStart ? (
               <section className="start-card">
                 <div className="start-card-mark">
@@ -721,333 +744,342 @@ export default function Home() {
                     onComplete={(id) => setStep(id, true)}
                   />
                 )}
-                <div className="mode-section">
-                  <p>Bugün ne kadar enerjin var?</p>
-                  <Tabs
-                    value={isExam ? 'exam' : String(plan?.mode || 50)}
-                    onValueChange={(value) =>
-                      safe(
-                        change(
-                          (s) => ({
-                            ...s,
-                            plans: {
-                              ...s.plans,
-                              [date]: makePlan(s, date, Number(value)),
-                            },
-                          }),
-                          'Bugünkü süre değişti.',
-                        ),
-                      )
-                    }
-                  >
-                    <TabsList className="mode-list">
-                      {modes.map((m) => (
-                        <TabsTrigger
-                          key={m.value}
-                          value={String(m.value)}
-                          disabled={blocked}
-                        >
-                          <strong>{m.label}</strong>
-                          <span>{m.value} dakika</span>
-                        </TabsTrigger>
-                      ))}
-                    </TabsList>
-                  </Tabs>
-                </div>
-                <div className="work-grid">
-                  <section className="today-card" aria-busy={!ready}>
-                    <div className="card-top">
-                      <span className="subject-tag">
-                        {isExam
-                          ? 'DENEME GÜNÜ'
-                          : mixed
-                            ? 'DENGELİ PROGRAM'
-                            : focus.subject.toLocaleUpperCase('tr-TR')}
-                      </span>
-                      <span className="time-tag">
-                        <Clock3 size={16} />
-                        {totalMinutes} dk net çalışma
-                      </span>
-                    </div>
-                    <h2>
-                      {isExam
-                        ? 'Deneme + yanlışları inceleme'
-                        : mixed
-                          ? programSubjects.length
-                            ? programSubjects.join(' + ')
-                            : 'Hafif tekrar günü'
-                          : focus.name}
-                    </h2>
-                    <p>
-                      {isExam
-                        ? 'Normal dersler yerine bugün bir deneme ve yanlışlarını inceleme var.'
-                        : mixed
-                          ? 'Dersleri aşağıdaki sırayla, ayrı çalışma parçaları olarak yap. Her derste kaldığın yer korunur.'
-                          : focus.id === 's0-7'
-                            ? 'Faktöriyelden sonraki adımın bu. Önceki konulara baştan dönmen gerekmiyor.'
-                            : 'Bugün bu konunun sıradaki küçük adımlarını çalış.'}
-                    </p>
-                    <div className="balanced-actions">
-                      <button
-                        className="plain-btn"
-                        onClick={() => setTab('program')}
-                      >
-                        Programın tamamını gör <ChevronRight size={16} />
-                      </button>
-                      {(!mixed || plan?.version !== 2) && (
-                        <button
-                          className="primary-btn"
-                          disabled={blocked}
-                          onClick={() =>
-                            safe(
-                              change(
-                                (s) => ({
-                                  ...s,
-                                  plans: {
-                                    ...s.plans,
-                                    [date]: makeBalancedPlan(
-                                      s,
-                                      date,
-                                      isExam ? undefined : plan?.mode,
-                                    ),
-                                  },
-                                }),
-                                'Dengeli program hazır; tiklerin korundu.',
-                              ),
-                            )
-                          }
-                        >
-                          Dengeli programa dön
-                        </button>
-                      )}
-                    </div>
-                    <details className="focus-override">
-                      <summary>
-                        Bugün yalnızca bir konuya odaklanmak istiyorum
-                      </summary>
-                      <div className="focus-picker">
-                        <label id="focus-label">Tek ders seç</label>
-                        <Select
-                          value={focus.subject}
-                          onValueChange={(value) => {
-                            if (typeof value === 'string')
-                              safe(selectTopic(nextTopic(state, value)));
-                          }}
-                        >
-                          <SelectTrigger
-                            aria-labelledby="focus-label"
+                <details className="day-drawer">
+                  <summary>
+                    Bugünün planı · {doneToday}/{steps.length} adım ·{' '}
+                    {totalMinutes} dakika{' '}
+                    <span>Süreyi değiştir / tüm adımları gör</span>
+                  </summary>
+                  <div className="mode-section">
+                    <p>Bugün ayıracağın net süre</p>
+                    <Tabs
+                      value={isExam ? 'exam' : String(plan?.mode || 50)}
+                      onValueChange={(value) =>
+                        safe(
+                          change(
+                            (s) => ({
+                              ...s,
+                              plans: {
+                                ...s.plans,
+                                [date]: makePlan(s, date, Number(value)),
+                              },
+                            }),
+                            'Bugünkü süre değişti.',
+                          ),
+                        )
+                      }
+                    >
+                      <TabsList className="mode-list">
+                        {modes.map((m) => (
+                          <TabsTrigger
+                            key={m.value}
+                            value={String(m.value)}
                             disabled={blocked}
                           >
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {subjects.map((s) => (
-                              <SelectItem key={s} value={s}>
-                                {s}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                            <strong>{m.label}</strong>
+                            <span>{m.value} dakika</span>
+                          </TabsTrigger>
+                        ))}
+                      </TabsList>
+                    </Tabs>
+                  </div>
+                  <div className="work-grid">
+                    <section className="today-card" aria-busy={!ready}>
+                      <div className="card-top">
+                        <span className="subject-tag">
+                          {isExam
+                            ? 'DENEME GÜNÜ'
+                            : mixed
+                              ? 'DENGELİ PROGRAM'
+                              : focus.subject.toLocaleUpperCase('tr-TR')}
+                        </span>
+                        <span className="time-tag">
+                          <Clock3 size={16} />
+                          {totalMinutes} dk net çalışma
+                        </span>
                       </div>
-                    </details>
-                    {ready ? (
-                      <>
-                        <div className="daily-progress">
-                          <span>
-                            {doneToday} / {steps.length} adım
-                          </span>
-                          <span>{doneMinutes} dk işaretledin</span>
-                        </div>
-                        <Progress
-                          value={
-                            steps.length ? (doneToday / steps.length) * 100 : 0
-                          }
-                          aria-label="Bugünkü ilerleme"
-                        />
-                        {steps.map((s) => row(s, 'today-'))}
-                        {mixed &&
-                          totalMinutes < (plan?.mode || 0) &&
-                          date < '2026-10-23' && (
-                            <div className="program-budget-note">
-                              <p>
-                                Seçtiğin süre bir üst sınır. Önce bu adımları
-                                bitir; konu kontrolünü geçtiğinde kalan süreye
-                                yeni adımlar alabilirsin. Süreyi doldurmak
-                                zorunda değilsin.
-                              </p>
-                              <button
-                                className="plain-btn"
-                                disabled={blocked}
-                                onClick={() =>
-                                  safe(
-                                    change(
-                                      (s) => ({
-                                        ...s,
-                                        plans: {
-                                          ...s.plans,
-                                          [date]: makeBalancedPlan(s, date),
-                                        },
-                                      }),
-                                      'Kalan süreye uygun adımlar güncellendi.',
-                                    ),
-                                  )
-                                }
-                              >
-                                Kalan süre için adımları yenile{' '}
-                                <RefreshCw size={15} />
-                              </button>
-                            </div>
-                          )}
-                        {steps.length > 0 && doneToday === steps.length && (
-                          <div className="success-box">
-                            <Check size={21} />
-                            <div>
-                              <strong>Bugün için bu kadar yeterli.</strong>
-                              <p>Yarın kaldığın yerden devam edeceksin.</p>
-                            </div>
-                          </div>
-                        )}
-                        {!steps.length && (
-                          <p className="empty-copy">
-                            Bu konu için seçtiğin süreye sığan adım kalmadı.
-                            Süreyi artırabilir veya başka konu seçebilirsin.
-                          </p>
-                        )}
-                      </>
-                    ) : (
-                      <div className="loading-copy">
-                        <RefreshCw size={20} />
-                        Çalışma adımların yükleniyor…
-                      </div>
-                    )}
-                    {!isExam && !mixed && (
-                      <>
-                        <a
-                          className="lesson-link"
-                          href={topicVideoUrl(focus)}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          {topicVideoLabel(focus)} <ArrowUpRight size={17} />
-                        </a>
-                        <p className="lesson-hint">
-                          Pegem’de aynı başlığı aç. Videodaki konu sırası
-                          farklıysa başlığın adıyla ilerle.
-                        </p>
-                        <button
-                          className="plain-btn"
-                          onClick={() => {
-                            setSubject(focus.subject);
-                            setExpanded(focus.id);
-                            setTab('topics');
-                          }}
-                        >
-                          Bu konunun bütün adımlarını gör{' '}
-                          <ChevronRight size={16} />
-                        </button>
-                      </>
-                    )}
-                    {mixed && (
-                      <div className="mixed-lessons">
-                        {programSubjects.map((s) => {
-                          if (!s || !subjects.includes(s)) return null;
-                          const lesson = nextTopic(state, s);
-                          return (
-                            <a
-                              className="lesson-link"
-                              href={topicVideoUrl(lesson)}
-                              target="_blank"
-                              rel="noreferrer"
-                              key={s}
-                            >
-                              {topicVideoLabel(lesson)}
-                              <ArrowUpRight size={16} />
-                            </a>
-                          );
-                        })}
-                        <p className="lesson-hint">
-                          Pegem’de adımın konu başlığını aç. Videoların sırası
-                          kitaptan farklı olabilir.
-                        </p>
-                      </div>
-                    )}
-                  </section>
-                  <aside className="right-column">
-                    <div className="guide-card">
-                      <p className="eyebrow">
-                        {mixed || isExam
-                          ? 'BUGÜNÜN ÇALIŞMA BÜTÇESİ'
-                          : 'BU KONUYA NE KADAR AYIRAYIM?'}
-                      </p>
                       <h2>
-                        {mixed || isExam
-                          ? formatMinutes(plan?.mode || 50)
-                          : rangeLabel(focus)}
+                        {isExam
+                          ? 'Deneme + yanlışları inceleme'
+                          : mixed
+                            ? programSubjects.length
+                              ? programSubjects.join(' + ')
+                              : 'Hafif tekrar günü'
+                            : focus.name}
                       </h2>
                       <p>
-                        {mixed || isExam
-                          ? 'Yemek ve molalar bu süreye dâhil değil. Adımların gerçek plan toplamı solda yazıyor.'
-                          : 'İlk çalışma için tahmini toplam süre. Anlatım, sorular ve yanlışlarına dönüş dâhil.'}
+                        {isExam
+                          ? 'Normal dersler yerine bugün bir deneme ve yanlışlarını inceleme var.'
+                          : mixed
+                            ? 'Dersleri aşağıdaki sırayla, ayrı çalışma parçaları olarak yap. Her derste kaldığın yer korunur.'
+                            : focus.id === 's0-7'
+                              ? 'Faktöriyelden sonraki adımın bu. Önceki konulara baştan dönmen gerekmiyor.'
+                              : 'Bugün bu konunun sıradaki küçük adımlarını çalış.'}
                       </p>
-                      <div className="rule-note">
-                        Bir parça: <strong>25 dakika</strong>
-                        <br />
-                        Ardından: <strong>5 dakika ara</strong>
+                      <div className="balanced-actions">
+                        <button
+                          className="plain-btn"
+                          onClick={() => setTab('program')}
+                        >
+                          Programın tamamını gör <ChevronRight size={16} />
+                        </button>
+                        {(!mixed || plan?.version !== 2) && (
+                          <button
+                            className="primary-btn"
+                            disabled={blocked}
+                            onClick={() =>
+                              safe(
+                                change(
+                                  (s) => ({
+                                    ...s,
+                                    plans: {
+                                      ...s.plans,
+                                      [date]: makeBalancedPlan(
+                                        s,
+                                        date,
+                                        isExam ? undefined : plan?.mode,
+                                      ),
+                                    },
+                                  }),
+                                  'Dengeli program hazır; tiklerin korundu.',
+                                ),
+                              )
+                            }
+                          >
+                            Dengeli programa dön
+                          </button>
+                        )}
                       </div>
-                      <p>
-                        Bir dersi tamamen bitirmeden diğerine geçebilirsin.
-                        Önemli olan her çalışmada soru çözmek ve eski bilgilere
-                        geri dönmek.
-                      </p>
-                    </div>
-                    <div className="gentle-note">
-                      <h3>Bir gün kaçarsa?</h3>
-                      <p>
-                        Yapmadığın işler üst üste yığılmaz. İşaretlerin kalır;
-                        sıradaki adımdan devam edersin.
-                      </p>
-                    </div>
-                    <div className="tiny-stats">
-                      <span>
-                        <strong>{Object.keys(state.done).length}</strong> küçük
-                        adım
-                      </span>
-                      <span>
-                        <strong>{completedCount}</strong> konu ilk çalışması
-                      </span>
-                    </div>
-                  </aside>
-                </div>
-                <section className="pace-card">
-                  <h3>27 Eylül’e kadar kendini tüketmeden</h3>
-                  <div className="pace-grid">
-                    <div>
-                      <span>ŞİMDİ → 27 EYLÜL</span>
-                      <strong>İş günü 25–50 dk</strong>
-                      <p>
-                        İzin gününde 100 dakikayı ikiye böl. İzin gününü kendin
-                        seç; takvim tahmin etmiyor.
-                      </p>
-                    </div>
-                    <div>
-                      <span>28 → 30 EYLÜL</span>
-                      <strong>Güne yayılmış 4 saat</strong>
-                      <p>
-                        İşten çıkınca ilk günler bu tempoyla başla. Araları bu
-                        süreye ekle.
-                      </p>
-                    </div>
-                    <div>
-                      <span>1 → 22 EKİM</span>
-                      <strong>Sürdürebiliyorsan 6 saat</strong>
-                      <p>
-                        Deneme, eksik konular ve tekrar için de zaman ayır.
-                        İstersen kısa gün seçebilirsin. Son iki gün hafif tekrar
-                        var.
-                      </p>
-                    </div>
+                      <details className="focus-override">
+                        <summary>
+                          Bugün yalnızca bir konuya odaklanmak istiyorum
+                        </summary>
+                        <div className="focus-picker">
+                          <label id="focus-label">Tek ders seç</label>
+                          <Select
+                            value={focus.subject}
+                            onValueChange={(value) => {
+                              if (typeof value === 'string')
+                                safe(selectTopic(nextTopic(state, value)));
+                            }}
+                          >
+                            <SelectTrigger
+                              aria-labelledby="focus-label"
+                              disabled={blocked}
+                            >
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {subjects.map((s) => (
+                                <SelectItem key={s} value={s}>
+                                  {s}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </details>
+                      {ready ? (
+                        <>
+                          <div className="daily-progress">
+                            <span>
+                              {doneToday} / {steps.length} adım
+                            </span>
+                            <span>{doneMinutes} dk işaretledin</span>
+                          </div>
+                          <Progress
+                            value={
+                              steps.length
+                                ? (doneToday / steps.length) * 100
+                                : 0
+                            }
+                            aria-label="Bugünkü ilerleme"
+                          />
+                          {steps.map((s) => row(s, 'today-'))}
+                          {mixed &&
+                            totalMinutes < (plan?.mode || 0) &&
+                            date < '2026-10-23' && (
+                              <div className="program-budget-note">
+                                <p>
+                                  Seçtiğin süre bir üst sınır. Önce bu adımları
+                                  bitir; konu kontrolünü geçtiğinde kalan süreye
+                                  yeni adımlar alabilirsin. Süreyi doldurmak
+                                  zorunda değilsin.
+                                </p>
+                                <button
+                                  className="plain-btn"
+                                  disabled={blocked}
+                                  onClick={() =>
+                                    safe(
+                                      change(
+                                        (s) => ({
+                                          ...s,
+                                          plans: {
+                                            ...s.plans,
+                                            [date]: makeBalancedPlan(s, date),
+                                          },
+                                        }),
+                                        'Kalan süreye uygun adımlar güncellendi.',
+                                      ),
+                                    )
+                                  }
+                                >
+                                  Kalan süre için adımları yenile{' '}
+                                  <RefreshCw size={15} />
+                                </button>
+                              </div>
+                            )}
+                          {steps.length > 0 && doneToday === steps.length && (
+                            <div className="success-box">
+                              <Check size={21} />
+                              <div>
+                                <strong>Bugün için bu kadar yeterli.</strong>
+                                <p>Yarın kaldığın yerden devam edeceksin.</p>
+                              </div>
+                            </div>
+                          )}
+                          {!steps.length && (
+                            <p className="empty-copy">
+                              Bu konu için seçtiğin süreye sığan adım kalmadı.
+                              Süreyi artırabilir veya başka konu seçebilirsin.
+                            </p>
+                          )}
+                        </>
+                      ) : (
+                        <div className="loading-copy">
+                          <RefreshCw size={20} />
+                          Çalışma adımların yükleniyor…
+                        </div>
+                      )}
+                      {!isExam && !mixed && (
+                        <>
+                          <a
+                            className="lesson-link"
+                            href={topicVideoUrl(focus)}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            {topicVideoLabel(focus)} <ArrowUpRight size={17} />
+                          </a>
+                          <p className="lesson-hint">
+                            Pegem’de aynı başlığı aç. Videodaki konu sırası
+                            farklıysa başlığın adıyla ilerle.
+                          </p>
+                          <button
+                            className="plain-btn"
+                            onClick={() => {
+                              setSubject(focus.subject);
+                              setExpanded(focus.id);
+                              setTab('topics');
+                            }}
+                          >
+                            Bu konunun bütün adımlarını gör{' '}
+                            <ChevronRight size={16} />
+                          </button>
+                        </>
+                      )}
+                      {mixed && (
+                        <div className="mixed-lessons">
+                          {programSubjects.map((s) => {
+                            if (!s || !subjects.includes(s)) return null;
+                            const lesson = nextTopic(state, s);
+                            return (
+                              <a
+                                className="lesson-link"
+                                href={topicVideoUrl(lesson)}
+                                target="_blank"
+                                rel="noreferrer"
+                                key={s}
+                              >
+                                {topicVideoLabel(lesson)}
+                                <ArrowUpRight size={16} />
+                              </a>
+                            );
+                          })}
+                          <p className="lesson-hint">
+                            Pegem’de adımın konu başlığını aç. Videoların sırası
+                            kitaptan farklı olabilir.
+                          </p>
+                        </div>
+                      )}
+                    </section>
+                    <aside className="right-column">
+                      <div className="guide-card">
+                        <p className="eyebrow">
+                          {mixed || isExam
+                            ? 'BUGÜNÜN ÇALIŞMA BÜTÇESİ'
+                            : 'BU KONUYA NE KADAR AYIRAYIM?'}
+                        </p>
+                        <h2>
+                          {mixed || isExam
+                            ? formatMinutes(plan?.mode || 50)
+                            : rangeLabel(focus)}
+                        </h2>
+                        <p>
+                          {mixed || isExam
+                            ? 'Yemek ve molalar bu süreye dâhil değil. Adımların gerçek plan toplamı solda yazıyor.'
+                            : 'İlk çalışma için tahmini toplam süre. Anlatım, sorular ve yanlışlarına dönüş dâhil.'}
+                        </p>
+                        <div className="rule-note">
+                          Bir parça: <strong>25 dakika</strong>
+                          <br />
+                          Ardından: <strong>5 dakika ara</strong>
+                        </div>
+                        <p>
+                          Bir dersi tamamen bitirmeden diğerine geçebilirsin.
+                          Önemli olan her çalışmada soru çözmek ve eski
+                          bilgilere geri dönmek.
+                        </p>
+                      </div>
+                      <div className="gentle-note">
+                        <h3>Bir gün kaçarsa?</h3>
+                        <p>
+                          Yapmadığın işler üst üste yığılmaz. İşaretlerin kalır;
+                          sıradaki adımdan devam edersin.
+                        </p>
+                      </div>
+                      <div className="tiny-stats">
+                        <span>
+                          <strong>{Object.keys(state.done).length}</strong>{' '}
+                          küçük adım
+                        </span>
+                        <span>
+                          <strong>{completedCount}</strong> konu ilk çalışması
+                        </span>
+                      </div>
+                    </aside>
                   </div>
-                </section>
+                  <section className="pace-card">
+                    <h3>27 Eylül’e kadar kendini tüketmeden</h3>
+                    <div className="pace-grid">
+                      <div>
+                        <span>ŞİMDİ → 27 EYLÜL</span>
+                        <strong>İş günü 25–50 dk</strong>
+                        <p>
+                          İzin gününde 100 dakikayı ikiye böl. İzin gününü
+                          kendin seç; takvim tahmin etmiyor.
+                        </p>
+                      </div>
+                      <div>
+                        <span>28 → 30 EYLÜL</span>
+                        <strong>Güne yayılmış 4 saat</strong>
+                        <p>
+                          İşten çıkınca ilk günler bu tempoyla başla. Araları bu
+                          süreye ekle.
+                        </p>
+                      </div>
+                      <div>
+                        <span>1 → 22 EKİM</span>
+                        <strong>Sürdürebiliyorsan 6 saat</strong>
+                        <p>
+                          Deneme, eksik konular ve tekrar için de zaman ayır.
+                          İstersen kısa gün seçebilirsin. Son iki gün hafif
+                          tekrar var.
+                        </p>
+                      </div>
+                    </div>
+                  </section>
+                </details>
               </>
             )}
           </TabsContent>
@@ -1221,6 +1253,17 @@ export default function Home() {
             )}
           </TabsContent>
           <TabsContent value="app">
+            <section className="account-info">
+              <strong>Bu kayıtların hesabı</strong>
+              <p>{accountEmail || 'Oturum açılmadı'}</p>
+              <p>
+                Tiklerin, notların, sayaçların ve alıştırma cevapların sana
+                aittir. Sevgilin kendi hesabıyla giriş yapmalı.
+              </p>
+              <a href="/signout-with-chatgpt?return_to=%2F" target="_top">
+                Hesaptan çık / başka hesapla giriş yap
+              </a>
+            </section>
             <PwaPanel
               installed={pwa.installed}
               online={pwa.online}
@@ -1232,7 +1275,9 @@ export default function Home() {
           </TabsContent>
         </Tabs>
         <div className="footer-notes">
-          <p>{notice || 'Küçük bir çalışma da çalışmadır.'}</p>
+          <p>
+            {notice || 'Sıradaki adımı bitirince tikle. Kaldığın yer saklanır.'}
+          </p>
           <span aria-live="polite">
             {busy
               ? 'Kaydediliyor…'
@@ -1256,7 +1301,8 @@ export default function Home() {
             Pegem’den gönderdiğin 243 bölümün tamamı listede. Numaralı aynı konu
             parçaları bir arada gösterilir. Matematikte iki satıra bölünmüş “1.
             Dereceden Denklemler” tek başlık olarak düzeltildi. Tiklenen süreler
-            planlanan çalışma süresidir; otomatik süre ölçümü yapılmaz.
+            planlanan çalışma süresidir; gerçek çalışma süresi ayrıca sayaçtan
+            kaydedilir.
           </p>
           <a
             href="https://osym.gov.tr/2026-kpss-ortaogretim-basvurularin-alinmasi"
