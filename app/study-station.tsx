@@ -22,6 +22,8 @@ import {
   type StudyState,
 } from '@/lib/study';
 import { PracticeQuiz, hasPractice } from './practice-quiz';
+import { questionBanks } from '@/lib/question-bank';
+import { bankProgress, openQuiz, quizStats } from '@/lib/quiz-state';
 import type { SaveStudy } from './focus-panel';
 
 export function FocusPanel({
@@ -37,7 +39,7 @@ export function FocusPanel({
   next?: Step;
   disabled: boolean;
   onSave: SaveStudy;
-  onComplete: (id: string) => Promise<unknown>;
+  onComplete: (id: string, startQuiz?: boolean) => Promise<unknown>;
 }) {
   const [now, setNow] = useState(0);
   const [duration, setDuration] = useState('25');
@@ -47,6 +49,9 @@ export function FocusPanel({
   const audio = useRef<AudioContext | null>(null);
   const alerted = useRef('');
   const t = state.timer;
+  const quizTopic = state.activeQuiz
+    ? questionBanks[state.activeQuiz]
+    : undefined;
   const step = t?.stepId
     ? allSteps(state).find((s) => s.id === t.stepId) ||
       (next?.id === t.stepId ? next : undefined)
@@ -149,10 +154,14 @@ export function FocusPanel({
           timer: {
             id: crypto.randomUUID(),
             day: date,
-            stepId: isBreak ? '' : step?.id || '',
+            stepId: isBreak
+              ? ''
+              : quizTopic
+                ? `quiz:${quizTopic.topicId}`
+                : step?.id || '',
             label: isBreak
               ? '5 dakika mola'
-              : `${topic?.name || 'Serbest çalışma'} · ${step?.title || 'Çalışma'}`.slice(
+              : `${quizTopic?.title || topic?.name || 'Serbest çalışma'} · ${quizTopic ? 'Soru çalışması' : step?.title || 'Çalışma'}`.slice(
                   0,
                   180,
                 ),
@@ -203,17 +212,66 @@ export function FocusPanel({
   return (
     <section className="study-station" aria-label="Sıradaki çalışma">
       <div className="mission-bar">
-        <span>{t?.kind === 'break' ? 'MOLA' : topic?.subject || 'BUGÜN'}</span>
-        <span>{step ? `${step.minutes} dk planlandı` : 'Tamamlandı'}</span>
+        <span>
+          {t?.kind === 'break'
+            ? 'MOLA'
+            : quizTopic
+              ? 'SORU ÇALIŞMASI'
+              : topic?.subject || 'BUGÜN'}
+        </span>
+        <span>
+          {quizTopic
+            ? 'Kaldığın yer kaydedilir'
+            : step
+              ? `${step.minutes} dk planlandı`
+              : 'Tamamlandı'}
+        </span>
       </div>
       <div className="station-body">
         <div className="mission-main">
           <p className="mission-topic">
-            {topic?.name || step?.title || t?.label || 'Tiklerin kaydedildi.'}
+            {quizTopic?.title ||
+              topic?.name ||
+              step?.title ||
+              t?.label ||
+              'Tiklerin kaydedildi.'}
           </p>
-          <h2>{title}</h2>
+          <h2>
+            {quizTopic && t?.kind !== 'break'
+              ? 'Kâğıtta çöz, cevabını seç, kontrol et'
+              : title}
+          </h2>
           {t?.kind === 'break' ? (
             <p>Ekrandan uzaklaş, su iç. Süre bitince sıradaki adıma dön.</p>
+          ) : quizTopic ? (
+            <>
+              <button
+                className="quiz-back"
+                disabled={disabled}
+                onClick={() =>
+                  void run(() =>
+                    onSave(
+                      (s) => ({
+                        ...(s.timer?.stepId?.startsWith('quiz:')
+                          ? saveTimer(s)
+                          : s),
+                        activeQuiz: null,
+                      }),
+                      'Soru çalışman saklandı. Günlük plana döndün.',
+                    ),
+                  )
+                }
+              >
+                Şimdilik bırak · günlük plana dön
+              </button>
+              <PracticeQuiz
+                key={quizTopic.topicId}
+                topicId={quizTopic.topicId}
+                state={state}
+                disabled={disabled}
+                onSave={onSave}
+              />
+            </>
           ) : step ? (
             <>
               <p className="mission-detail">{step.detail}</p>
@@ -227,12 +285,21 @@ export function FocusPanel({
               <button
                 className="mission-complete"
                 disabled={disabled}
-                onClick={() => void run(() => onComplete(step.id))}
+                onClick={() =>
+                  void run(() =>
+                    onComplete(
+                      step.id,
+                      step.kind === 'learn' && hasPractice(step.topicId),
+                    ),
+                  )
+                }
               >
                 <Check size={20} />
                 {step.kind === 'check'
                   ? 'En az 7 doğru yaptım · konuyu tamamla'
-                  : 'Bu adımı bitirdim · sıradakine geç'}
+                  : step.kind === 'learn' && hasPractice(step.topicId)
+                    ? 'Anlatım adımını bitirdim · sorulara geç'
+                    : 'Bu adımı bitirdim · sıradakine geç'}
               </button>
               {step.kind === 'check' && (
                 <p className="small-info">
@@ -431,6 +498,45 @@ export function FocusPanel({
           {message}
         </p>
       )}
+      {!quizTopic && (
+        <div className="question-library">
+          <h3>Kitap zor geldiyse buradan başla</h3>
+          <p>
+            Önce 10 temel soru çöz. Hepsini bugün bitirme zorunluluğun yok.
+            Günlük planın değişmez; çalışan sayacın varsa geçen süre kaydedilir.
+          </p>
+          <div>
+            {Object.values(questionBanks).map((bank) => {
+              const stats = quizStats(bankProgress(state, bank.topicId));
+              return (
+                <button
+                  key={bank.topicId}
+                  disabled={disabled}
+                  onClick={() =>
+                    void run(() =>
+                      onSave(
+                        (s) => openQuiz(saveTimer(s), bank.topicId),
+                        'Soru çalışması açıldı.',
+                      ),
+                    )
+                  }
+                >
+                  <strong>{bank.title}</strong>
+                  <span>
+                    {bank.questions.length} özgün soru · {stats.studied}{' '}
+                    çalışıldı{stats.review ? ` · ${stats.review} tekrar` : ''}
+                  </span>
+                  <b>
+                    {stats.studied
+                      ? 'Kaldığım yerden devam et →'
+                      : 'İlk 10 soruyu aç →'}
+                  </b>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -451,7 +557,6 @@ function StepAction({
     String(Math.floor((state.videoPositions?.[step.topicId] || 0) / 60)),
   );
   const [error, setError] = useState('');
-  const [quiz, setQuiz] = useState(false);
   if (!topic) return <p className="action-instruction">{step.detail}</p>;
   const video = topicVideoUrl(topic),
     exact = video.includes('/watch?');
@@ -545,17 +650,23 @@ function StepAction({
       </div>
       {step.kind !== 'check' && hasPractice(topic.id) && (
         <>
-          <button className="action-primary" onClick={() => setQuiz(!quiz)}>
-            {quiz ? 'Alıştırmayı kapat' : 'Burada 10 alıştırma sorusu çöz'}
+          <button
+            className="action-primary"
+            disabled={disabled}
+            onClick={async () => {
+              try {
+                await onSave(
+                  (s) => openQuiz(saveTimer(s), topic.id),
+                  'Soru çalışması açıldı.',
+                );
+              } catch {
+                setError('Soru çalışması açılamadı. Tekrar dene.');
+              }
+            }}
+          >
+            Önce burada temel soruları çöz
           </button>
-          {quiz && (
-            <PracticeQuiz
-              topicId={topic.id}
-              state={state}
-              disabled={disabled}
-              onSave={onSave}
-            />
-          )}
+          {error && <p role="alert">{error}</p>}
         </>
       )}
     </div>

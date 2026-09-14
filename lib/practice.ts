@@ -11,64 +11,71 @@ export const practice: Record<string, Question[]> = {
       q: '84 sayısının 7 ile bölümünden elde edilen bölüm kaçtır?',
       options: ['10', '11', '12', '13', '14'],
       answer: 2,
-      explanation: '7 × 12 = 84 olduğundan bölüm 12’dir.',
+      explanation:
+        'Bölünen 84, bölen 7’dir. “84’ün içinde kaç tane 7 var?” diye düşün. 7 × 10 = 70; geriye 14 kalır. 14’ün içinde 2 tane daha 7 vardır. Bölüm 10 + 2 = 12, kalan 0’dır. Kontrol: 84 = 7 × 12 + 0.',
     },
     {
       q: '157 sayısının 12 ile bölümünden kalan kaçtır?',
       options: ['1', '3', '5', '7', '9'],
       answer: 0,
-      explanation: '157 = 12 × 13 + 1. Kalan 1’dir.',
+      explanation:
+        '157’yi aşmayan en büyük 12 katını bul: 12 × 13 = 156. Sonraki kat 12 × 14 = 168 olduğu için büyüktür. 157 − 156 = 1 kalır. Bölüm 13, kalan 1’dir. Kalanın bölen 12’den küçük olduğunu da kontrol et.',
     },
     {
       q: 'Aşağıdaki sayılardan hangisi 9 ile tam bölünür?',
       options: ['124', '235', '346', '459', '568'],
       answer: 3,
-      explanation: '459’un rakamları toplamı 18’dir. 18, 9’un katıdır.',
+      explanation:
+        '9 ile bölünebilmek için rakamlar toplamı 9’un katı olmalıdır. Toplamlar: 124 → 7, 235 → 10, 346 → 13, 459 → 18, 568 → 19. Yalnız 18, 9’un katıdır; doğru seçenek 459’dur.',
     },
     {
       q: '4a2 üç basamaklı sayısı 3 ile tam bölünüyor. a rakamı kaç farklı değer alabilir?',
       options: ['2', '3', '4', '5', '6'],
       answer: 2,
-      explanation: '6 + a, 3’ün katı olmalı. a = 0, 3, 6, 9: dört değer.',
+      explanation:
+        'Rakamları topla: 4 + a + 2 = 6 + a. Sayının 3 ile bölünmesi için bu toplam 3’ün katı olmalı. a bir rakamdır; 0’dan 9’a kadar olabilir. 6 + a’yı 3’ün katı yapan değerler a = 0, 3, 6, 9’dur. Dört değer vardır. a ortadaki basamak olduğu için 0 da kullanılabilir.',
     },
     {
       q: '53b üç basamaklı sayısı 5 ile tam bölünüyor. b’nin alabileceği değerlerin toplamı kaçtır?',
       options: ['0', '3', '5', '8', '10'],
       answer: 2,
-      explanation: 'Son rakam 0 veya 5’tir. Toplam 5.',
+      explanation:
+        '5 ile tam bölünen bir sayının birler basamağı 0 veya 5’tir. Bu nedenle b = 0 ya da b = 5; sayılar 530 ve 535’tir. Soru değerlerin sayısını değil, toplamını istiyor: 0 + 5 = 5.',
     },
     {
       q: '7a4 üç basamaklı sayısı 4 ile tam bölünüyor. a’nın en büyük değeri kaçtır?',
       options: ['4', '5', '6', '7', '8'],
       answer: 4,
       explanation:
-        'Son iki basamak 4’ün katı olmalı. 94 bölünmez, 84 bölünür. a = 8.',
+        '4 ile bölünebilmede son iki basamağa bakılır: a4. En büyük a’dan başla. a = 9 için 94, 4’e tam bölünmez (kalan 2). a = 8 için 84 = 4 × 21’dir. Dolayısıyla kullanılabilen en büyük a, 8’dir; sayı 784 olur.',
     },
     {
       q: 'Bir doğal sayının 6 ile bölümünde bölüm 8, kalan 4’tür. Sayı kaçtır?',
       options: ['48', '50', '52', '54', '56'],
       answer: 2,
-      explanation: 'Bölünen = bölen × bölüm + kalan = 6 × 8 + 4 = 52.',
+      explanation:
+        'Bölünen = bölen × bölüm + kalan. Bölen 6, bölüm 8, kalan 4 olduğuna göre sayı 6 × 8 + 4 = 48 + 4 = 52’dir. Kontrol: 52’nin içinde 8 tane 6 vardır ve 4 artar. 4, bölen 6’dan küçüktür.',
     },
     {
       q: 'Bir doğal sayının 7 ile bölümünden kalan 5’tir. Sayıya 11 eklenirse 7 ile bölümünden kalan kaç olur?',
       options: ['0', '1', '2', '3', '4'],
       answer: 2,
-      explanation: '5 + 11 = 16. 16’nın 7 ile bölümünden kalan 2’dir.',
+      explanation:
+        'Sayıyı 7k + 5 diye yaz: 7k, 7’nin tam katı olan kısmıdır. 11 ekleyince 7k + 16 olur. 16’nın içinde 2 tane 7 vardır, 2 artar. Yani 7k + 16 = 7(k + 2) + 2; yeni kalan 2’dir. 16’yı doğrudan kalan yazma; kalan 7’den küçük olmalıdır.',
     },
     {
       q: 'Hem 6 hem 10 ile tam bölünebilen en küçük üç basamaklı doğal sayı kaçtır?',
       options: ['100', '110', '120', '150', '180'],
       answer: 2,
       explanation:
-        'Ortak katlar 30’un katlarıdır. Üç basamaklı ilk kat 120’dir.',
+        '10 ile bölünen sayıların sonu 0’dır. En küçük üç basamaklı adaylardan başla: 100, 110, 120. 6 ile bölünmek için sayı hem çift olmalı hem rakamları toplamı 3’ün katı olmalı. 100’ün toplamı 1, 110’un toplamı 2, 120’nin toplamı 3’tür. İlk uygun sayı 120’dir. Kontrol: 120 ÷ 6 = 20, 120 ÷ 10 = 12.',
     },
     {
       q: 'Bir doğal sayının 8 ile bölümünden kalan 5’tir. Aynı sayının 4 ile bölümünden kalan kaçtır?',
       options: ['0', '1', '2', '3', '4'],
       answer: 1,
       explanation:
-        'Sayı 8k + 5’tir. 8k bölünür; 5’in 4 ile bölümünden kalan 1’dir.',
+        'Sayıyı 8k + 5 olarak yaz. 8k, 4 ile de tam bölünür; çünkü 8’in her katı 4’ün de katıdır. Geriye 5 kısmı kalır. 5 = 4 × 1 + 1 olduğundan yeni kalan 1’dir. Eski kalan 5’i aynen kullanamayız; yeni kalan 4’ten küçük olmalıdır.',
     },
   ],
   's0-9': [

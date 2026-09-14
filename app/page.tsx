@@ -59,6 +59,8 @@ import { registerStudyTools } from '@/lib/webmcp';
 import { ProgramPanel } from './program-panel';
 import { FocusPanel } from './study-station';
 import { saveTimer } from '@/lib/companion';
+import { hasPractice, questionBanks } from '@/lib/question-bank';
+import { openQuiz } from '@/lib/quiz-state';
 import { ProgressPanel } from './progress-panel';
 import { PwaPanel, usePwa } from './pwa-panel';
 import { TopicNotes } from './topic-notes';
@@ -191,7 +193,7 @@ export default function Home() {
   }
   const changeRef = useRef(change);
   changeRef.current = change;
-  const setStep = async (id: string, checked: boolean) => {
+  const setStep = async (id: string, checked: boolean, startQuiz = false) => {
     const s = stateRef.current;
     const day = dateRef.current;
     const known = [...allSteps(s), ...daySteps(s, day)];
@@ -215,10 +217,16 @@ export default function Home() {
           )
             delete done[`${step.topicId}:check`];
         }
-        return {
+        const updated = {
           ...(checked && prev.timer?.stepId === id ? saveTimer(prev) : prev),
           done,
         };
+        return checked &&
+          startQuiz &&
+          step.kind === 'learn' &&
+          hasPractice(step.topicId)
+          ? openQuiz(saveTimer(updated), step.topicId)
+          : updated;
       },
       checked ? 'Bir adım daha tamamlandı.' : 'Tik kaldırıldı.',
     );
@@ -492,6 +500,22 @@ export default function Home() {
               )}
             </div>
             <div className="topic-actions">
+              {hasPractice(t.id) && (
+                <button
+                  className="primary-btn"
+                  disabled={blocked}
+                  onClick={() =>
+                    safe(
+                      change(
+                        (s) => openQuiz(saveTimer(s), t.id),
+                        'Soru çalışması açıldı.',
+                      ).then(() => setTab('today')),
+                    )
+                  }
+                >
+                  {questionBanks[t.id].questions.length} özgün soruyu aç
+                </button>
+              )}
               <button
                 className="primary-btn"
                 disabled={busy || !ready || beforeStart}
@@ -741,7 +765,7 @@ export default function Home() {
                     next={steps.find((s) => !state.done[s.id])}
                     disabled={blocked}
                     onSave={change}
-                    onComplete={(id) => setStep(id, true)}
+                    onComplete={(id, startQuiz) => setStep(id, true, startQuiz)}
                   />
                 )}
                 <details className="day-drawer">

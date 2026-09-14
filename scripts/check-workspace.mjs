@@ -18,6 +18,7 @@ const load = async (entry, plugins = []) => {
 };
 const c = await load('lib/companion.ts'),
   s = await load('lib/study.ts'),
+  quiz = await load('lib/quiz-state.ts'),
   { practice } = await load('lib/practice.ts');
 const t = {
   id: 'test-timer',
@@ -149,7 +150,15 @@ const partner = await (
 ).json();
 assert.deepEqual(partner.state, s.emptyState());
 assert.equal(partner.revision, 0);
-const updated = { ...partner.state, notes: { 's0-7': 'Partner notu' } };
+const updated = quiz.updateQuestion(
+  quiz.openQuiz(
+    { ...partner.state, notes: { 's0-7': 'Partner notu' } },
+    's0-7',
+  ),
+  's0-7',
+  'bolme-1',
+  (r) => ({ ...r, choice: 0 }),
+);
 assert.equal(
   (
     await route.PUT(

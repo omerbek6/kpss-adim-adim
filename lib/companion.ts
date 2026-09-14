@@ -1,3 +1,5 @@
+import { validateQuiz, type QuizState } from './quiz-state';
+
 export type FocusTimer = {
   id: string;
   day: string;
@@ -24,7 +26,7 @@ export type ExamResult = {
   scores: { right: number; wrong: number }[];
   note: string;
 };
-export type CompanionState = {
+export type CompanionState = QuizState & {
   timer?: FocusTimer | null;
   focusSessions?: Record<string, FocusSession>;
   exams?: ExamResult[];
@@ -96,6 +98,7 @@ export function weekMinutes(state: CompanionState, day: string) {
   });
 }
 export function validateCompanion(s: CompanionState, topicIds: Set<string>) {
+  if (!validateQuiz(s)) return false;
   const object = (o: unknown): o is Record<string, unknown> =>
     !!o && typeof o === 'object' && !Array.isArray(o);
   const day = (d: unknown) =>

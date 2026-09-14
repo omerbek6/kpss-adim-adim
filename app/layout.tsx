@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import './mobile.css';
 import './workspace.css';
+import './quiz.css';
 
 export const metadata: Metadata = {
   title: 'Adım Adım · KPSS çalışma defterim',
